@@ -1,0 +1,5 @@
+{
+  "name": "KBB Soru Üreteci",
+  "description": "Kulak Burun Boğaz konularında 5 seçenekli çoktan seçmeli sorular üreten ve çözen uygulama.",
+  "requestFramePermissions": []
+}

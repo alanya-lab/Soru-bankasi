@@ -110,9 +110,11 @@ export default function App() {
 
     let currentCount = getQuestions().length;
     while (currentCount < 1040 && autoGenRef.current) {
-      setGenStatus('Yapay zeka 15 yeni soru hazırlıyor. Lütfen bekleyin...');
       try {
         const dist = getTopicDistribution(15);
+        const distText = dist.map(d => `${d.count}x ${d.name}`).join(', ');
+        setGenStatus(`Hazırlanıyor (${distText})...`);
+
         const newQs = await generateExamQuestions(dist);
         currentCount = saveQuestions(newQs);
         setDbCount(currentCount);

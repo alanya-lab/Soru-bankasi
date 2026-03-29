@@ -208,37 +208,37 @@ export default function App() {
 
   const renderHome = () => (
     <div className="space-y-8">
-      <div className="text-center space-y-4 max-w-2xl mx-auto">
+      <div className="text-center space-y-3 max-w-2xl mx-auto">
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="inline-block px-4 py-1.5 bg-brand-primary/10 text-brand-primary rounded-full text-xs font-bold uppercase tracking-widest mb-2"
+          className="inline-block px-3 py-1 bg-brand-primary/10 text-brand-primary rounded-full text-[10px] font-bold uppercase tracking-widest mb-1"
         >
           KBB Uzmanlık Sınavı Hazırlık
         </motion.div>
-        <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+        <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
           KBB Soru Bankası
         </h2>
-        <p className="text-slate-500 text-lg leading-relaxed">
+        <p className="text-slate-500 text-base leading-relaxed">
           Yapay zeka destekli, güncel literatüre dayalı ve tamamen çevrimdışı 
           çalışan profesyonel soru bankası.
         </p>
       </div>
 
-      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-3xl p-8 shadow-xl shadow-blue-200/50 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-3xl p-6 shadow-xl shadow-blue-200/50 flex flex-col md:flex-row items-center justify-between gap-4 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-400/20 rounded-full -ml-16 -mb-16 blur-2xl"></div>
         
-        <div className="flex items-center gap-6 relative z-10">
-          <div className="w-16 h-16 bg-white/20 backdrop-blur-md text-white rounded-2xl flex items-center justify-center shadow-inner">
-            <Database size={32} />
+        <div className="flex items-center gap-4 relative z-10">
+          <div className="w-12 h-12 bg-white/20 backdrop-blur-md text-white rounded-2xl flex items-center justify-center shadow-inner">
+            <Database size={24} />
           </div>
           <div>
-            <h3 className="font-bold text-white text-xl">Veritabanı Durumu</h3>
-            <p className="text-blue-100 text-sm mt-1">
+            <h3 className="font-bold text-white text-lg">Veritabanı Durumu</h3>
+            <p className="text-blue-100 text-xs mt-0.5">
               <span className="font-mono font-bold text-white">{dbCount}</span> / 1040 soru hazır
             </p>
-            <div className="w-48 h-1.5 bg-white/20 rounded-full mt-3 overflow-hidden">
+            <div className="w-40 h-1 bg-white/20 rounded-full mt-2 overflow-hidden">
               <div 
                 className="h-full bg-white transition-all duration-1000"
                 style={{ width: `${(dbCount / 1040) * 100}%` }}
@@ -248,73 +248,73 @@ export default function App() {
         </div>
         <button 
           onClick={() => setView('database')}
-          className="bg-white text-blue-700 hover:bg-blue-50 px-8 py-4 rounded-2xl text-base font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg relative z-10"
+          className="bg-white text-blue-700 hover:bg-blue-50 px-6 py-3 rounded-2xl text-sm font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg relative z-10"
         >
           Soru Bankasını Yönet
         </button>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6">
-        <button onClick={() => startExam('quick')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-orange-500 group-hover:text-white transition-all duration-300 text-orange-600 shadow-sm">
-            <Play size={28} />
+      <div className="grid md:grid-cols-3 gap-4">
+        <button onClick={() => startExam('quick')} disabled={dbCount === 0} className="vibrant-card p-6 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-orange-500 group-hover:text-white transition-all duration-300 text-orange-600 shadow-sm">
+            <Play size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Hızlı Sınav</h3>
-          <p className="text-slate-500 text-sm leading-relaxed">Tüm konulardan rastgele seçilmiş 30 soru ile hızlı bir tur yapın.</p>
+          <h3 className="text-lg font-bold text-slate-800 mb-1">Hızlı Sınav</h3>
+          <p className="text-slate-500 text-xs leading-relaxed">Tüm konulardan rastgele seçilmiş 30 soru ile hızlı bir tur yapın.</p>
         </button>
 
-        <button onClick={() => startExam('full')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 text-indigo-600 shadow-sm">
-            <Trophy size={28} />
+        <button onClick={() => startExam('full')} disabled={dbCount === 0} className="vibrant-card p-6 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 text-indigo-600 shadow-sm">
+            <Trophy size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Tam Deneme</h3>
-          <p className="text-slate-500 text-sm leading-relaxed">Gerçek sınav formatında 130 soruluk kapsamlı bir deneme sınavı.</p>
+          <h3 className="text-lg font-bold text-slate-800 mb-1">Tam Deneme</h3>
+          <p className="text-slate-500 text-xs leading-relaxed">Gerçek sınav formatında 130 soruluk kapsamlı bir deneme sınavı.</p>
         </button>
 
-        <button onClick={() => setView('setup')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 text-emerald-600 shadow-sm">
-            <Settings size={28} />
+        <button onClick={() => setView('setup')} disabled={dbCount === 0} className="vibrant-card p-6 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 text-emerald-600 shadow-sm">
+            <Settings size={24} />
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Özel Sınav</h3>
-          <p className="text-slate-500 text-sm leading-relaxed">Konuları ve soru sayısını kendi ihtiyacınıza göre özelleştirin.</p>
+          <h3 className="text-lg font-bold text-slate-800 mb-1">Özel Sınav</h3>
+          <p className="text-slate-500 text-xs leading-relaxed">Konuları ve soru sayısını kendi ihtiyacınıza göre özelleştirin.</p>
         </button>
       </div>
     </div>
   );
 
   const renderDatabase = () => (
-    <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-stone-200 p-5 sm:p-6">
-      <div className="flex items-center justify-between mb-6 pb-4 border-b border-stone-100">
+    <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 p-4 sm:p-5">
+      <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-100">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800 flex items-center gap-2">
-            <Database size={18} className="text-emerald-600" />
+          <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+            <Database size={16} className="text-emerald-600" />
             Soru Bankası Yöneticisi
           </h2>
-          <p className="text-xs text-stone-500 mt-1">Yapay zeka ile çevrimdışı soru havuzunuzu doldurun.</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Yapay zeka ile çevrimdışı soru havuzunuzu doldurun.</p>
         </div>
-        <button onClick={() => setView('home')} className="text-sm text-stone-400 hover:text-stone-600">
+        <button onClick={() => setView('home')} className="text-xs font-bold text-slate-400 hover:text-slate-600">
           Geri Dön
         </button>
       </div>
 
-      <div className="space-y-6">
-        <div className="bg-stone-50 p-5 rounded-xl border border-stone-200 text-center">
-          <div className="text-3xl font-bold text-stone-800 mb-1">{dbCount} <span className="text-lg text-stone-400 font-medium">/ 1040</span></div>
-          <p className="text-stone-500 text-xs mb-3">Cihazınızda kayıtlı toplam soru sayısı</p>
+      <div className="space-y-5">
+        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
+          <div className="text-2xl font-black text-slate-900 mb-0.5">{dbCount} <span className="text-sm text-slate-400 font-bold">/ 1040</span></div>
+          <p className="text-slate-400 text-[10px] uppercase tracking-wider font-bold mb-3">Cihazınızda kayıtlı toplam soru sayısı</p>
           
-          <div className="bg-stone-200 rounded-full h-2 overflow-hidden mb-2">
+          <div className="bg-slate-200 rounded-full h-1.5 overflow-hidden mb-2">
             <div 
               className="bg-emerald-500 h-full transition-all duration-500 ease-out"
               style={{ width: `${Math.max(2, (dbCount / 1040) * 100)}%` }}
             ></div>
           </div>
-          <p className="text-xs text-stone-400 font-medium">% {Math.round((dbCount / 1040) * 100)} Tamamlandı</p>
+          <p className="text-[10px] text-slate-400 font-bold">% {Math.round((dbCount / 1040) * 100)} Tamamlandı</p>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           <button
             onClick={toggleAutoGenerate}
-            className={`w-full py-3 rounded-xl font-medium transition-colors shadow-sm flex items-center justify-center gap-2 text-sm ${
+            className={`w-full py-3 rounded-xl font-bold transition-all shadow-sm flex items-center justify-center gap-2 text-xs ${
               isAutoGenerating 
                 ? 'bg-red-600 hover:bg-red-700 text-white' 
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -322,26 +322,26 @@ export default function App() {
           >
             {isAutoGenerating ? (
               <>
-                <StopCircle size={18} />
+                <StopCircle size={16} />
                 Üretimi Durdur
               </>
             ) : (
               <>
-                <Play size={18} />
+                <Play size={16} />
                 Otomatik Soru Üretimini Başlat
               </>
             )}
           </button>
           
           {genStatus && (
-            <div className="text-center text-xs font-medium text-stone-600 bg-stone-50 py-2.5 rounded-lg border border-stone-200">
-              {isAutoGenerating && <Loader2 size={14} className="animate-spin inline mr-2 text-emerald-600" />}
+            <div className="text-center text-[10px] font-bold text-slate-500 bg-slate-50 py-2 rounded-lg border border-slate-200">
+              {isAutoGenerating && <Loader2 size={12} className="animate-spin inline mr-2 text-emerald-600" />}
               {genStatus}
             </div>
           )}
         </div>
 
-        <div className="pt-5 border-t border-stone-100 flex flex-col sm:flex-row gap-3">
+        <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2">
           <input 
             type="file" 
             accept=".json" 
@@ -352,23 +352,23 @@ export default function App() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isAutoGenerating}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 py-2 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <Upload size={16} />
+            <Upload size={14} />
             Yükle
           </button>
           <button
             onClick={handleDownload}
             disabled={dbCount === 0}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 py-2 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <Download size={16} />
+            <Download size={14} />
             İndir
           </button>
           <button
             onClick={handleClearDb}
             disabled={isAutoGenerating || dbCount === 0}
-            className="flex-1 py-2.5 rounded-xl text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Temizle
           </button>
@@ -381,30 +381,41 @@ export default function App() {
     // Group topics by category
     const categories = Array.from(new Set(TOPICS.map(t => t.category)));
 
+    const toggleCategory = (category: string) => {
+      const categoryTopicIds = TOPICS.filter(t => t.category === category).map(t => t.id);
+      const allSelected = categoryTopicIds.every(id => selectedTopicIds.includes(id));
+      
+      if (allSelected) {
+        setSelectedTopicIds(prev => prev.filter(id => !categoryTopicIds.includes(id)));
+      } else {
+        setSelectedTopicIds(prev => Array.from(new Set([...prev, ...categoryTopicIds])));
+      }
+    };
+
     return (
-      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-stone-200 p-5 sm:p-6">
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-stone-100">
+      <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-slate-200 p-6 sm:p-8">
+        <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-100">
           <div>
-            <h2 className="text-lg font-semibold text-stone-800">Özel Sınav Oluştur</h2>
-            <p className="text-xs text-stone-500 mt-1">Kategorileri, konuları ve soru sayısını seçin.</p>
+            <h2 className="text-xl font-black text-slate-900">Özel Sınav</h2>
+            <p className="text-sm text-slate-500 mt-1">Konuları ve soru sayısını seçin.</p>
           </div>
-          <button onClick={() => setView('home')} className="text-sm text-stone-400 hover:text-stone-600">
+          <button onClick={() => setView('home')} className="text-sm font-bold text-slate-400 hover:text-slate-600">
             İptal
           </button>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-8">
           <div>
-            <label className="block text-sm font-medium text-stone-700 mb-2">Soru Sayısı</label>
-            <div className="flex gap-2">
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Soru Sayısı</label>
+            <div className="flex gap-3">
               {[10, 20, 30, 40, 50].map(num => (
                 <button
                   key={num}
                   onClick={() => setQuestionCount(num)}
-                  className={`flex-1 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
+                  className={`flex-1 py-3 rounded-2xl border-2 text-sm font-bold transition-all ${
                     questionCount === num 
-                      ? 'bg-emerald-50 border-emerald-500 text-emerald-700' 
-                      : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                      ? 'bg-brand-primary border-brand-primary text-white' 
+                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                   }`}
                 >
                   {num}
@@ -414,41 +425,51 @@ export default function App() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-stone-700">Konular</label>
+            <div className="flex items-center justify-between mb-4">
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Konular</label>
               <button 
                 onClick={() => setSelectedTopicIds([])}
-                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                className="text-xs text-red-500 hover:text-red-600 font-bold"
               >
-                Tümünü Temizle
+                Tümünü Kaldır
               </button>
             </div>
             
-            <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="space-y-6 max-h-[45vh] overflow-y-auto pr-2 custom-scrollbar">
               {categories.map(category => {
                 const categoryTopics = TOPICS.filter(t => t.category === category);
+                const allSelected = categoryTopics.every(t => selectedTopicIds.includes(t.id));
+                
                 return (
-                  <div key={category} className="space-y-1.5">
-                    <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">{category}</h3>
-                    <div className="grid sm:grid-cols-2 gap-1.5">
+                  <div key={category} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-black text-slate-800">{category}</h3>
+                      <button 
+                        onClick={() => toggleCategory(category)}
+                        className="text-[10px] font-bold text-brand-primary hover:text-brand-primary/80 uppercase"
+                      >
+                        {allSelected ? 'Kaldır' : 'Tümünü Seç'}
+                      </button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-2">
                       {categoryTopics.map(topic => {
                         const isSelected = selectedTopicIds.includes(topic.id);
                         return (
                           <button
                             key={topic.id}
                             onClick={() => toggleTopic(topic.id)}
-                            className={`text-left px-2.5 py-1.5 rounded-lg text-xs border transition-colors flex items-start gap-2 ${
+                            className={`text-left px-4 py-3 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-3 ${
                               isSelected 
-                                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                                : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                                ? 'bg-blue-50 border-brand-primary text-brand-primary' 
+                                : 'bg-slate-50 border-slate-100 text-slate-600 hover:border-slate-200'
                             }`}
                           >
-                            <div className={`shrink-0 w-3.5 h-3.5 mt-0.5 rounded border flex items-center justify-center ${
-                              isSelected ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-stone-300'
+                            <div className={`shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${
+                              isSelected ? 'bg-brand-primary border-brand-primary text-white' : 'border-slate-300'
                             }`}>
                               {isSelected && <CheckSquare size={10} />}
                             </div>
-                            <span className="line-clamp-2 leading-tight">{topic.name}</span>
+                            <span className="leading-tight">{topic.name}</span>
                           </button>
                         );
                       })}
@@ -461,9 +482,8 @@ export default function App() {
 
           <button
             onClick={() => startExam('custom')}
-            className="w-full bg-stone-900 hover:bg-stone-800 text-white py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2"
+            className="w-full bg-slate-900 hover:bg-slate-800 text-white py-4 rounded-2xl text-base font-bold transition-all shadow-lg shadow-slate-200 active:scale-95"
           >
-            <Play size={16} />
             Sınavı Başlat
           </button>
         </div>
@@ -521,11 +541,11 @@ export default function App() {
               transition={{ duration: 0.2 }}
               className="space-y-8 cursor-grab active:cursor-grabbing"
             >
-              <div className="text-xl font-bold text-slate-800 leading-relaxed select-none">
+              <div className="text-base font-bold text-slate-800 leading-relaxed select-none">
                 {question.soru}
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {Object.entries(question.secenekler).map(([key, value]) => {
                   const isThisSelected = selectedAnswer === key;
                   const isThisCorrect = question.dogruCevap === key;
@@ -536,10 +556,10 @@ export default function App() {
                   if (showResult) {
                     if (isThisCorrect) {
                       buttonClass = "bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-500/20 z-10";
-                      icon = <CheckCircle2 size={20} className="text-emerald-600" />;
+                      icon = <CheckCircle2 size={16} className="text-emerald-600" />;
                     } else if (isThisSelected && !isThisCorrect) {
                       buttonClass = "bg-red-50 border-red-500 text-red-900 ring-2 ring-red-500/20 z-10";
-                      icon = <XCircle size={20} className="text-red-600" />;
+                      icon = <XCircle size={16} className="text-red-600" />;
                     } else {
                       buttonClass = "bg-white border-slate-100 text-slate-300 opacity-50";
                     }
@@ -550,17 +570,17 @@ export default function App() {
                       key={key}
                       onClick={() => handleAnswer(key)}
                       disabled={showResult}
-                      className={`w-full text-left p-4 rounded-2xl border-2 transition-all duration-300 flex items-start gap-4 relative select-none group ${buttonClass}`}
+                      className={`w-full text-left p-3 rounded-xl border-2 transition-all duration-300 flex items-start gap-3 relative select-none group ${buttonClass}`}
                     >
-                      <span className={`font-bold shrink-0 w-8 h-8 flex items-center justify-center rounded-xl text-sm transition-colors ${
+                      <span className={`font-bold shrink-0 w-6 h-6 flex items-center justify-center rounded-lg text-[10px] transition-colors ${
                         showResult && isThisCorrect ? 'bg-emerald-500 text-white' :
                         showResult && isThisSelected && !isThisCorrect ? 'bg-red-500 text-white' :
                         'bg-slate-100 text-slate-500 group-hover:bg-brand-primary group-hover:text-white'
                       }`}>
                         {key}
                       </span>
-                      <span className="flex-1 pt-1 font-medium leading-snug text-base">{value}</span>
-                      {icon && <span className="shrink-0 mt-1">{icon}</span>}
+                      <span className="flex-1 pt-0.5 font-medium leading-snug text-sm">{value}</span>
+                      {icon && <span className="shrink-0 mt-0.5">{icon}</span>}
                     </button>
                   );
                 })}
@@ -573,16 +593,16 @@ export default function App() {
                     animate={{ opacity: 1, height: 'auto' }}
                     className="overflow-hidden"
                   >
-                    <div className={`p-6 rounded-2xl border-2 ${
+                    <div className={`p-4 rounded-xl border-2 ${
                       isCorrect 
                         ? 'bg-emerald-50/30 border-emerald-100' 
                         : 'bg-slate-50 border-slate-200'
                     }`}>
-                      <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                        <BookOpen size={18} className="text-brand-primary" />
+                      <h3 className="text-xs font-bold text-slate-800 mb-2 flex items-center gap-2">
+                        <BookOpen size={14} className="text-brand-primary" />
                         Açıklama ve Klinik Notlar
                       </h3>
-                      <p className="text-slate-600 text-sm leading-relaxed select-none font-medium">
+                      <p className="text-slate-600 text-xs leading-relaxed select-none font-medium">
                         {question.aciklama}
                       </p>
                     </div>
@@ -630,55 +650,55 @@ export default function App() {
     const score = Math.round((correct / questions.length) * 100);
 
     return (
-      <div className="max-w-2xl mx-auto vibrant-card rounded-3xl p-8 sm:p-12 text-center relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-2 bg-brand-primary"></div>
-        <div className="w-20 h-20 bg-brand-primary/10 text-brand-primary rounded-3xl flex items-center justify-center mx-auto mb-8 rotate-3">
-          <Trophy size={40} />
+      <div className="max-w-2xl mx-auto vibrant-card rounded-3xl p-6 sm:p-8 text-center relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-brand-primary"></div>
+        <div className="w-16 h-16 bg-brand-primary/10 text-brand-primary rounded-2xl flex items-center justify-center mx-auto mb-6 rotate-3">
+          <Trophy size={32} />
         </div>
-        <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Sınav Tamamlandı</h2>
-        <p className="text-slate-500 font-medium mb-10">Performans özetiniz aşağıdadır.</p>
+        <h2 className="text-2xl font-extrabold text-slate-900 mb-1">Sınav Tamamlandı</h2>
+        <p className="text-slate-500 font-medium mb-6 text-sm">Performans özetiniz aşağıdadır.</p>
 
-        <div className="grid grid-cols-3 gap-4 mb-10">
-          <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
-            <div className="text-3xl font-black text-emerald-600 mb-1">{correct}</div>
-            <div className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Doğru</div>
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+            <div className="text-2xl font-black text-emerald-600 mb-0.5">{correct}</div>
+            <div className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Doğru</div>
           </div>
-          <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-4">
-            <div className="text-3xl font-black text-red-600 mb-1">{incorrect}</div>
-            <div className="text-xs font-bold text-red-800 uppercase tracking-wider">Yanlış</div>
+          <div className="bg-red-50 border border-red-100 rounded-xl p-3">
+            <div className="text-2xl font-black text-red-600 mb-0.5">{incorrect}</div>
+            <div className="text-[10px] font-bold text-red-800 uppercase tracking-wider">Yanlış</div>
           </div>
-          <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-4">
-            <div className="text-3xl font-black text-slate-600 mb-1">{empty}</div>
-            <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">Boş</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mb-10">
-          <div className="bg-slate-900 rounded-2xl p-6 text-white">
-            <div className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-2">Başarı Oranı</div>
-            <div className="text-4xl font-black">%{score}</div>
-          </div>
-          <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6">
-            <div className="text-xs text-orange-400 uppercase tracking-widest font-bold mb-2">Toplam Süre</div>
-            <div className="text-2xl font-black text-orange-700 font-mono">{formatTime(timer)}</div>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <div className="text-2xl font-black text-slate-600 mb-0.5">{empty}</div>
+            <div className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Boş</div>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="bg-slate-900 rounded-xl p-4 text-white">
+            <div className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Başarı Oranı</div>
+            <div className="text-3xl font-black">%{score}</div>
+          </div>
+          <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+            <div className="text-[10px] text-orange-400 uppercase tracking-widest font-bold mb-1">Toplam Süre</div>
+            <div className="text-xl font-black text-orange-700 font-mono">{formatTime(timer)}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={() => {
               setCurrentIndex(0);
               setView('exam');
             }}
-            className="px-8 py-4 rounded-2xl text-base font-bold border-2 border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
+            className="px-6 py-3 rounded-xl text-sm font-bold border-2 border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
           >
             Soruları İncele
           </button>
           <button
             onClick={() => setView('home')}
-            className="flex items-center justify-center gap-2 bg-brand-primary hover:bg-blue-700 text-white px-8 py-4 rounded-2xl text-base font-bold transition-all shadow-lg shadow-blue-200 active:scale-95"
+            className="flex items-center justify-center gap-2 bg-brand-primary hover:bg-blue-700 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-200 active:scale-95"
           >
-            <Home size={20} />
+            <Home size={16} />
             Ana Sayfaya Dön
           </button>
         </div>

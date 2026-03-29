@@ -28,10 +28,31 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [timer, setTimer] = useState(0);
+  const [isTimerActive, setIsTimerActive] = useState(false);
 
   useEffect(() => {
     setDbCount(getQuestions().length);
   }, []);
+
+  useEffect(() => {
+    let interval: any;
+    if (isTimerActive) {
+      interval = setInterval(() => {
+        setTimer(prev => prev + 1);
+      }, 1000);
+    } else {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [isTimerActive]);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return [h, m, s].map(v => v < 10 ? "0" + v : v).join(":");
+  };
 
   const startExam = (mode: 'quick' | 'full' | 'custom') => {
     setError(null);
@@ -59,6 +80,8 @@ export default function App() {
     setQuestions(pool);
     setAnswers({});
     setCurrentIndex(0);
+    setTimer(0);
+    setIsTimerActive(true);
     setView('exam');
   };
 
@@ -71,6 +94,7 @@ export default function App() {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
+      setIsTimerActive(false);
       setView('result');
     }
   };
@@ -183,67 +207,78 @@ export default function App() {
   };
 
   const renderHome = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-3 max-w-2xl mx-auto">
-        <h2 className="text-2xl font-bold text-stone-800 tracking-tight">KBB Soru Bankası</h2>
-        <p className="text-stone-500 text-base">Çevrimdışı çalışan, yapay zeka destekli güncel KBB (Board Seviyesi) soru bankası ile kendinizi test edin.</p>
+    <div className="space-y-8">
+      <div className="text-center space-y-4 max-w-2xl mx-auto">
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="inline-block px-4 py-1.5 bg-brand-primary/10 text-brand-primary rounded-full text-xs font-bold uppercase tracking-widest mb-2"
+        >
+          KBB Uzmanlık Sınavı Hazırlık
+        </motion.div>
+        <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+          KBB Soru Bankası
+        </h2>
+        <p className="text-slate-500 text-lg leading-relaxed">
+          Yapay zeka destekli, güncel literatüre dayalı ve tamamen çevrimdışı 
+          çalışan profesyonel soru bankası.
+        </p>
       </div>
 
-      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center">
-            <Database size={20} />
+      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-3xl p-8 shadow-xl shadow-blue-200/50 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-400/20 rounded-full -ml-16 -mb-16 blur-2xl"></div>
+        
+        <div className="flex items-center gap-6 relative z-10">
+          <div className="w-16 h-16 bg-white/20 backdrop-blur-md text-white rounded-2xl flex items-center justify-center shadow-inner">
+            <Database size={32} />
           </div>
           <div>
-            <h3 className="font-semibold text-emerald-900 text-sm">Veritabanı Durumu</h3>
-            <p className="text-emerald-700 text-xs mt-0.5">Mevcut Soru: {dbCount} / 1040</p>
+            <h3 className="font-bold text-white text-xl">Veritabanı Durumu</h3>
+            <p className="text-blue-100 text-sm mt-1">
+              <span className="font-mono font-bold text-white">{dbCount}</span> / 1040 soru hazır
+            </p>
+            <div className="w-48 h-1.5 bg-white/20 rounded-full mt-3 overflow-hidden">
+              <div 
+                className="h-full bg-white transition-all duration-1000"
+                style={{ width: `${(dbCount / 1040) * 100}%` }}
+              ></div>
+            </div>
           </div>
         </div>
         <button 
           onClick={() => setView('database')}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+          className="bg-white text-blue-700 hover:bg-blue-50 px-8 py-4 rounded-2xl text-base font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg relative z-10"
         >
           Soru Bankasını Yönet
         </button>
       </div>
 
-      {dbCount === 0 && (
-        <div className="bg-amber-50 text-amber-800 p-3 rounded-xl text-xs border border-amber-200 text-center">
-          Sınavlara başlamadan önce "Soru Bankasını Yönet" bölümünden veritabanına soru eklemelisiniz.
-        </div>
-      )}
-
-      <div className="grid md:grid-cols-3 gap-4">
-        <button onClick={() => startExam('quick')} disabled={dbCount === 0} className="bg-white p-5 rounded-2xl shadow-sm border border-stone-200 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-500 group-hover:text-white transition-colors text-emerald-600">
-            <Play size={20} />
+      <div className="grid md:grid-cols-3 gap-6">
+        <button onClick={() => startExam('quick')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-orange-500 group-hover:text-white transition-all duration-300 text-orange-600 shadow-sm">
+            <Play size={28} />
           </div>
-          <h3 className="text-base font-semibold text-stone-800 mb-1">Hızlı Sınav</h3>
-          <p className="text-stone-500 text-xs">Tüm konulardan rastgele seçilmiş 30 soru.</p>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Hızlı Sınav</h3>
+          <p className="text-slate-500 text-sm leading-relaxed">Tüm konulardan rastgele seçilmiş 30 soru ile hızlı bir tur yapın.</p>
         </button>
 
-        <button onClick={() => startExam('full')} disabled={dbCount === 0} className="bg-white p-5 rounded-2xl shadow-sm border border-stone-200 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-500 group-hover:text-white transition-colors text-emerald-600">
-            <Trophy size={20} />
+        <button onClick={() => startExam('full')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300 text-indigo-600 shadow-sm">
+            <Trophy size={28} />
           </div>
-          <h3 className="text-base font-semibold text-stone-800 mb-1">Tam Deneme</h3>
-          <p className="text-stone-500 text-xs">Gerçek sınav formatında 130 soruluk deneme.</p>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Tam Deneme</h3>
+          <p className="text-slate-500 text-sm leading-relaxed">Gerçek sınav formatında 130 soruluk kapsamlı bir deneme sınavı.</p>
         </button>
 
-        <button onClick={() => setView('setup')} disabled={dbCount === 0} className="bg-white p-5 rounded-2xl shadow-sm border border-stone-200 hover:border-emerald-500 hover:ring-1 hover:ring-emerald-500 transition-all text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-          <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-500 group-hover:text-white transition-colors text-emerald-600">
-            <Settings size={20} />
+        <button onClick={() => setView('setup')} disabled={dbCount === 0} className="vibrant-card p-8 rounded-3xl text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+          <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-300 text-emerald-600 shadow-sm">
+            <Settings size={28} />
           </div>
-          <h3 className="text-base font-semibold text-stone-800 mb-1">Özel Sınav</h3>
-          <p className="text-stone-500 text-xs">İstediğiniz konuları ve soru sayısını belirleyin.</p>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">Özel Sınav</h3>
+          <p className="text-slate-500 text-sm leading-relaxed">Konuları ve soru sayısını kendi ihtiyacınıza göre özelleştirin.</p>
         </button>
       </div>
-      
-      {error && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-xl text-xs border border-red-100 max-w-2xl mx-auto text-center">
-          {error}
-        </div>
-      )}
     </div>
   );
 
@@ -446,24 +481,33 @@ export default function App() {
 
     return (
       <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <span className="bg-stone-900 text-white px-2.5 py-1 rounded-lg text-xs font-medium">
+            <span className="bg-slate-900 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-sm">
               Soru {currentIndex + 1} / {questions.length}
             </span>
-            <span className="text-xs text-stone-500 font-medium bg-white px-2.5 py-1 rounded-lg border border-stone-200 line-clamp-1 max-w-[200px] sm:max-w-none">
+            <span className="text-xs text-slate-600 font-bold bg-white px-4 py-1.5 rounded-xl border border-slate-200 shadow-sm line-clamp-1 max-w-[200px] sm:max-w-none">
               {question.topic}
             </span>
           </div>
-          <button 
-            onClick={() => setView('result')}
-            className="text-xs text-stone-500 hover:text-stone-800 font-medium"
-          >
-            Sınavı Bitir
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-orange-50 text-orange-700 rounded-xl border border-orange-100 shadow-sm">
+              <span className="text-xs font-bold font-mono">{formatTime(timer)}</span>
+            </div>
+            <button 
+              onClick={() => {
+                setIsTimerActive(false);
+                setView('result');
+              }}
+              className="text-xs text-slate-400 hover:text-red-600 font-bold transition-colors"
+            >
+              Sınavı Bitir
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-5 sm:p-6 mb-5 overflow-hidden">
+        <div className="vibrant-card rounded-3xl p-6 sm:p-10 mb-8 overflow-hidden relative">
+          <div className="absolute top-0 left-0 w-1 h-full bg-brand-primary"></div>
           <AnimatePresence mode="wait">
             <motion.div
               key={currentIndex}
@@ -475,29 +519,29 @@ export default function App() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -50 }}
               transition={{ duration: 0.2 }}
-              className="space-y-6 cursor-grab active:cursor-grabbing"
+              className="space-y-8 cursor-grab active:cursor-grabbing"
             >
-              <div className="text-base font-medium text-stone-800 leading-relaxed select-none">
+              <div className="text-xl font-bold text-slate-800 leading-relaxed select-none">
                 {question.soru}
               </div>
 
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {Object.entries(question.secenekler).map(([key, value]) => {
                   const isThisSelected = selectedAnswer === key;
                   const isThisCorrect = question.dogruCevap === key;
                   
-                  let buttonClass = "bg-white border-stone-200 hover:border-stone-300 hover:bg-stone-50 text-stone-700";
+                  let buttonClass = "bg-white border-slate-200 hover:border-brand-primary hover:bg-blue-50/30 text-slate-700";
                   let icon = null;
 
                   if (showResult) {
                     if (isThisCorrect) {
-                      buttonClass = "bg-emerald-50 border-emerald-500 text-emerald-800 ring-1 ring-emerald-500 z-10";
-                      icon = <CheckCircle2 size={18} className="text-emerald-600" />;
+                      buttonClass = "bg-emerald-50 border-emerald-500 text-emerald-900 ring-2 ring-emerald-500/20 z-10";
+                      icon = <CheckCircle2 size={20} className="text-emerald-600" />;
                     } else if (isThisSelected && !isThisCorrect) {
-                      buttonClass = "bg-red-50 border-red-500 text-red-800 ring-1 ring-red-500 z-10";
-                      icon = <XCircle size={18} className="text-red-600" />;
+                      buttonClass = "bg-red-50 border-red-500 text-red-900 ring-2 ring-red-500/20 z-10";
+                      icon = <XCircle size={20} className="text-red-600" />;
                     } else {
-                      buttonClass = "bg-white border-stone-200 text-stone-400 opacity-60";
+                      buttonClass = "bg-white border-slate-100 text-slate-300 opacity-50";
                     }
                   }
 
@@ -506,17 +550,17 @@ export default function App() {
                       key={key}
                       onClick={() => handleAnswer(key)}
                       disabled={showResult}
-                      className={`w-full text-left p-3 rounded-xl border transition-all duration-300 flex items-start gap-3 relative select-none ${buttonClass}`}
+                      className={`w-full text-left p-4 rounded-2xl border-2 transition-all duration-300 flex items-start gap-4 relative select-none group ${buttonClass}`}
                     >
-                      <span className={`font-semibold shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-sm ${
-                        showResult && isThisCorrect ? 'bg-emerald-200 text-emerald-800' :
-                        showResult && isThisSelected && !isThisCorrect ? 'bg-red-200 text-red-800' :
-                        'bg-stone-100 text-stone-500'
+                      <span className={`font-bold shrink-0 w-8 h-8 flex items-center justify-center rounded-xl text-sm transition-colors ${
+                        showResult && isThisCorrect ? 'bg-emerald-500 text-white' :
+                        showResult && isThisSelected && !isThisCorrect ? 'bg-red-500 text-white' :
+                        'bg-slate-100 text-slate-500 group-hover:bg-brand-primary group-hover:text-white'
                       }`}>
                         {key}
                       </span>
-                      <span className="flex-1 pt-0.5 leading-snug text-sm">{value}</span>
-                      {icon && <span className="shrink-0">{icon}</span>}
+                      <span className="flex-1 pt-1 font-medium leading-snug text-base">{value}</span>
+                      {icon && <span className="shrink-0 mt-1">{icon}</span>}
                     </button>
                   );
                 })}
@@ -525,20 +569,20 @@ export default function App() {
               <AnimatePresence>
                 {showResult && (
                   <motion.div
-                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                    animate={{ opacity: 1, height: 'auto', marginTop: 24 }}
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
                     className="overflow-hidden"
                   >
-                    <div className={`p-4 rounded-xl border ${
+                    <div className={`p-6 rounded-2xl border-2 ${
                       isCorrect 
-                        ? 'bg-emerald-50/50 border-emerald-100' 
-                        : 'bg-stone-50 border-stone-200'
+                        ? 'bg-emerald-50/30 border-emerald-100' 
+                        : 'bg-slate-50 border-slate-200'
                     }`}>
-                      <h3 className="text-xs font-semibold text-stone-800 mb-1.5 flex items-center gap-1.5">
-                        <BookOpen size={14} className="text-emerald-600" />
-                        Açıklama
+                      <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                        <BookOpen size={18} className="text-brand-primary" />
+                        Açıklama ve Klinik Notlar
                       </h3>
-                      <p className="text-stone-600 text-xs leading-relaxed select-none">
+                      <p className="text-slate-600 text-sm leading-relaxed select-none font-medium">
                         {question.aciklama}
                       </p>
                     </div>
@@ -549,22 +593,22 @@ export default function App() {
           </AnimatePresence>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-2">
           <button
             onClick={prevQuestion}
             disabled={currentIndex === 0}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-6 py-3 rounded-2xl text-sm font-bold text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
-            <ArrowLeft size={16} />
-            Önceki
+            <ArrowLeft size={18} />
+            Önceki Soru
           </button>
           
           <button
             onClick={nextQuestion}
-            className="flex items-center gap-1.5 bg-stone-900 hover:bg-stone-800 text-white px-5 py-2 rounded-xl text-sm font-medium transition-colors shadow-sm"
+            className="flex items-center gap-2 bg-slate-900 hover:bg-brand-primary text-white px-8 py-3 rounded-2xl text-sm font-bold transition-all shadow-lg hover:shadow-blue-200 active:scale-95"
           >
-            {currentIndex === questions.length - 1 ? 'Sınavı Bitir' : 'Sonraki'}
-            {currentIndex !== questions.length - 1 && <ArrowRight size={16} />}
+            {currentIndex === questions.length - 1 ? 'Sınavı Bitir' : 'Sonraki Soru'}
+            {currentIndex !== questions.length - 1 && <ArrowRight size={18} />}
           </button>
         </div>
       </div>
@@ -586,48 +630,55 @@ export default function App() {
     const score = Math.round((correct / questions.length) * 100);
 
     return (
-      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-stone-200 p-6 sm:p-8 text-center">
-        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-5">
-          <Trophy size={32} />
+      <div className="max-w-2xl mx-auto vibrant-card rounded-3xl p-8 sm:p-12 text-center relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-2 bg-brand-primary"></div>
+        <div className="w-20 h-20 bg-brand-primary/10 text-brand-primary rounded-3xl flex items-center justify-center mx-auto mb-8 rotate-3">
+          <Trophy size={40} />
         </div>
-        <h2 className="text-2xl font-bold text-stone-800 mb-2">Sınav Tamamlandı</h2>
-        <p className="text-stone-500 text-sm mb-6">İşte sonuçlarınız:</p>
+        <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Sınav Tamamlandı</h2>
+        <p className="text-slate-500 font-medium mb-10">Performans özetiniz aşağıdadır.</p>
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-            <div className="text-2xl font-bold text-emerald-600 mb-1">{correct}</div>
-            <div className="text-xs font-medium text-emerald-800">Doğru</div>
+        <div className="grid grid-cols-3 gap-4 mb-10">
+          <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
+            <div className="text-3xl font-black text-emerald-600 mb-1">{correct}</div>
+            <div className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Doğru</div>
           </div>
-          <div className="bg-red-50 border border-red-100 rounded-xl p-3">
-            <div className="text-2xl font-bold text-red-600 mb-1">{incorrect}</div>
-            <div className="text-xs font-medium text-red-800">Yanlış</div>
+          <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-4">
+            <div className="text-3xl font-black text-red-600 mb-1">{incorrect}</div>
+            <div className="text-xs font-bold text-red-800 uppercase tracking-wider">Yanlış</div>
           </div>
-          <div className="bg-stone-50 border border-stone-200 rounded-xl p-3">
-            <div className="text-2xl font-bold text-stone-600 mb-1">{empty}</div>
-            <div className="text-xs font-medium text-stone-800">Boş</div>
+          <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-4">
+            <div className="text-3xl font-black text-slate-600 mb-1">{empty}</div>
+            <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">Boş</div>
           </div>
-        </div>
-
-        <div className="bg-stone-50 rounded-xl p-5 mb-6">
-          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold mb-1">Başarı Oranı</div>
-          <div className="text-3xl font-bold text-stone-800">%{score}</div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+        <div className="grid grid-cols-2 gap-4 mb-10">
+          <div className="bg-slate-900 rounded-2xl p-6 text-white">
+            <div className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-2">Başarı Oranı</div>
+            <div className="text-4xl font-black">%{score}</div>
+          </div>
+          <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6">
+            <div className="text-xs text-orange-400 uppercase tracking-widest font-bold mb-2">Toplam Süre</div>
+            <div className="text-2xl font-black text-orange-700 font-mono">{formatTime(timer)}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <button
             onClick={() => {
               setCurrentIndex(0);
               setView('exam');
             }}
-            className="px-5 py-2.5 rounded-xl text-sm font-medium border border-stone-200 text-stone-700 hover:bg-stone-50 transition-colors"
+            className="px-8 py-4 rounded-2xl text-base font-bold border-2 border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
           >
             Soruları İncele
           </button>
           <button
             onClick={() => setView('home')}
-            className="flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+            className="flex items-center justify-center gap-2 bg-brand-primary hover:bg-blue-700 text-white px-8 py-4 rounded-2xl text-base font-bold transition-all shadow-lg shadow-blue-200 active:scale-95"
           >
-            <Home size={16} />
+            <Home size={20} />
             Ana Sayfaya Dön
           </button>
         </div>
@@ -636,15 +687,24 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 font-sans selection:bg-emerald-200">
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center gap-3">
-          <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center text-white shadow-sm cursor-pointer" onClick={() => setView('home')}>
-            <BookOpen size={16} />
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100">
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-4 cursor-pointer" onClick={() => setView('home')}>
+            <div className="w-10 h-10 bg-brand-primary rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+              <BookOpen size={20} />
+            </div>
+            <h1 className="text-xl font-black tracking-tight text-slate-800">
+              KBB <span className="text-brand-primary">SORU BANKASI</span>
+            </h1>
           </div>
-          <h1 className="text-lg font-semibold tracking-tight text-stone-800 cursor-pointer" onClick={() => setView('home')}>
-            KBB Soru Bankası
-          </h1>
+          
+          {view === 'exam' && (
+            <div className="hidden sm:flex items-center gap-2 px-4 py-1.5 bg-slate-100 rounded-full border border-slate-200">
+              <div className="w-2 h-2 bg-brand-secondary rounded-full animate-pulse"></div>
+              <span className="text-xs font-bold font-mono text-slate-600">{formatTime(timer)}</span>
+            </div>
+          )}
         </div>
       </header>
 

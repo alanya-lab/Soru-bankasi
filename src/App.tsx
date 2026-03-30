@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generateExamQuestions } from './services/gemini';
-import { getQuestions, saveQuestions, clearQuestions, getRandomQuestions } from './services/db';
+import { getQuestions, saveQuestions, clearQuestions, getRandomQuestions, getSolvedQuestions, markQuestionsAsSolved } from './services/db';
 import { Question } from './types';
 import { TOPICS } from './constants';
 import { getTopicDistribution } from './utils';
-import { Loader2, BookOpen, CheckCircle2, XCircle, ChevronRight, RefreshCw, ArrowRight, ArrowLeft, CheckSquare, Play, Settings, Trophy, Home, Database, StopCircle, Download, Upload, Check, ArrowUp } from 'lucide-react';
+import { Loader2, BookOpen, CheckCircle2, XCircle, ChevronRight, RefreshCw, ArrowRight, ArrowLeft, CheckSquare, Play, Settings, Trophy, Home, Database, StopCircle, Download, Upload, Check, ArrowUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type ViewState = 'dashboard' | 'exam' | 'result' | 'database';
@@ -14,6 +14,8 @@ export default function App() {
   
   // DB State
   const [dbCount, setDbCount] = useState(0);
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+  const [solvedQuestions, setSolvedQuestions] = useState<string[]>([]);
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [genStatus, setGenStatus] = useState('');
   const autoGenRef = useRef(false);
@@ -21,6 +23,7 @@ export default function App() {
 
   // Setup state
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
+  const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   const [questionCount, setQuestionCount] = useState<number>(30);
   
   // Exam state
@@ -33,8 +36,11 @@ export default function App() {
   const [forceShowExplanation, setForceShowExplanation] = useState(false);
 
   useEffect(() => {
-    setDbCount(getQuestions().length);
-  }, []);
+    const q = getQuestions();
+    setDbCount(q.length);
+    setAllQuestions(q);
+    setSolvedQuestions(getSolvedQuestions());
+  }, [view]);
 
   useEffect(() => {
     let interval: any;
@@ -98,6 +104,10 @@ export default function App() {
       setCurrentIndex(prev => prev + 1);
     } else {
       setIsTimerActive(false);
+      const answeredQuestions = questions
+        .filter((_, i) => answers[i])
+        .map(q => q.soru.trim());
+      markQuestionsAsSolved(answeredQuestions);
       setView('result');
     }
   };
@@ -226,111 +236,168 @@ export default function App() {
       }
     };
 
+    const toggleExpandedCategory = (category: string) => {
+      setExpandedCategories(prev => 
+        prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]
+      );
+    };
+
     return (
-      <div className="max-w-5xl mx-auto space-y-8 pt-4">
-        <div className="text-center mb-10">
-          <h1 className="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-800 to-purple-700 tracking-tight">
-            HadiÇöz
-          </h1>
-          <p className="text-slate-700 font-medium text-lg mt-1">Medikal Kontrol Paneli</p>
+      <div className="max-w-4xl mx-auto h-[100dvh] flex flex-col p-4 gap-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex items-center justify-between shrink-0">
+          <div>
+            <h1 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-800 to-purple-700 tracking-tight leading-none">
+              HadiÇöz
+            </h1>
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mt-1">Medikal Kontrol Paneli</p>
+          </div>
+          <button 
+            onClick={() => setView('database')}
+            className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-sm font-bold transition-colors flex items-center gap-2"
+          >
+            <Database size={16} /> <span className="hidden sm:inline">Soru Bankası</span>
+          </button>
         </div>
 
-        <div className="bg-white rounded-[2rem] shadow-xl border-l-[16px] border-purple-700 p-8 flex flex-col lg:flex-row gap-8">
-          {/* Left: Prepare for Test */}
-          <div className="bg-[#1e88e5] rounded-[1.5rem] p-6 text-white flex-1 flex flex-col shadow-inner">
-            <h2 className="text-2xl font-bold mb-2">Sınava Hazırlan</h2>
-            <p className="text-blue-100 text-sm mb-6">Önce konu(ları) seçin, ardından soru çözmeye başlayın.</p>
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
+          
+          {/* Left: Hadi Çözelim (Takes up most space) */}
+          <div className="flex-[2] md:flex-[7] bg-[#1e88e5] rounded-3xl p-4 sm:p-5 text-white flex flex-col shadow-lg overflow-hidden relative min-h-0">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
             
-            <div className="flex flex-col gap-4 mb-8 flex-1 overflow-y-auto max-h-[40vh] pr-2 custom-scrollbar">
+            <div className="flex justify-between items-end mb-4 shrink-0 relative z-10">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold mb-1">Hadi Çözelim</h2>
+                <p className="text-blue-100 text-[10px] sm:text-xs">Konuları seçin ve teste başlayın.</p>
+              </div>
+              <button
+                onClick={() => startExam('quick')}
+                disabled={dbCount < 30}
+                className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800/50 disabled:text-slate-400 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-md flex items-center gap-1.5 sm:gap-2"
+              >
+                <Play size={14} fill="currentColor" /> <span className="hidden sm:inline">Hızlı Sınav</span><span className="sm:hidden">Hızlı</span>
+              </button>
+            </div>
+
+            {/* Topics Accordion */}
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2 mb-4 relative z-10">
               {categories.map(category => {
                 const categoryTopics = TOPICS.filter(t => t.category === category);
                 const allSelected = categoryTopics.every(t => selectedTopicIds.includes(t.id));
+                const isExpanded = expandedCategories.includes(category);
+                
                 return (
-                  <div key={category} className="bg-white/10 rounded-xl p-3">
-                    <button
-                      onClick={() => toggleCategory(category)}
-                      className="w-full text-left font-bold text-white flex items-center justify-between mb-2"
-                    >
-                      <span>{category}</span>
-                      <div className={`w-5 h-5 rounded flex items-center justify-center border ${allSelected ? 'bg-white border-white' : 'border-white/50'}`}>
-                        {allSelected && <Check size={14} className="text-[#1e88e5]" />}
-                      </div>
-                    </button>
-                    <div className="flex flex-wrap gap-1.5">
-                      {categoryTopics.map(topic => {
-                        const isSelected = selectedTopicIds.includes(topic.id);
-                        return (
-                          <button
-                            key={topic.id}
-                            onClick={() => toggleTopic(topic.id)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                              isSelected ? 'bg-white text-[#1e88e5]' : 'bg-white/20 text-blue-50 hover:bg-white/30'
-                            }`}
-                          >
-                            {topic.name}
-                          </button>
-                        );
-                      })}
+                  <div key={category} className="bg-white/10 rounded-xl overflow-hidden transition-all">
+                    <div className="flex items-center justify-between p-2.5 sm:p-3">
+                      <button
+                        onClick={() => toggleExpandedCategory(category)}
+                        className="flex-1 text-left font-bold text-xs sm:text-sm text-white flex items-center gap-2"
+                      >
+                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        <span className="truncate">{category}</span>
+                      </button>
+                      <button
+                        onClick={() => toggleCategory(category)}
+                        className={`w-5 h-5 rounded flex items-center justify-center border transition-colors shrink-0 ml-2 ${allSelected ? 'bg-white border-white' : 'border-white/50 hover:bg-white/20'}`}
+                      >
+                        {allSelected && <Check size={12} className="text-[#1e88e5]" strokeWidth={3} />}
+                      </button>
                     </div>
+                    
+                    {isExpanded && (
+                      <div className="flex flex-col gap-1 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
+                        {categoryTopics.map(topic => {
+                          const isSelected = selectedTopicIds.includes(topic.id);
+                          const topicQuestions = allQuestions.filter(q => q.topic === topic.name);
+                          const totalQ = topicQuestions.length;
+                          const solvedQ = topicQuestions.filter(q => solvedQuestions.includes(q.soru.trim())).length;
+                          
+                          return (
+                            <button
+                              key={topic.id}
+                              onClick={() => toggleTopic(topic.id)}
+                              className={`w-full text-left px-2.5 py-2 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium transition-all flex items-center justify-between ${
+                                isSelected ? 'bg-white text-[#1e88e5]' : 'bg-white/10 text-blue-50 hover:bg-white/20'
+                              }`}
+                            >
+                              <span className="flex-1 truncate pr-2">{topic.name}</span>
+                              <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md font-bold ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-black/20 text-white'}`}>
+                                {solvedQ}/{totalQ}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            <button 
-              onClick={() => startExam('custom')}
-              disabled={selectedTopicIds.length === 0 || dbCount === 0}
-              className="w-full bg-[#1565c0] hover:bg-[#0d47a1] disabled:bg-blue-400/50 disabled:cursor-not-allowed text-white py-4 rounded-xl font-bold text-lg transition-all shadow-lg active:scale-95"
-            >
-              Soru Çözmeye Başla
-            </button>
+            {/* Bottom Controls */}
+            <div className="shrink-0 space-y-2.5 sm:space-y-3 relative z-10">
+              <div className="flex gap-1.5 sm:gap-2">
+                {[10, 20, 30, 50, 9999].map(num => (
+                  <button
+                    key={num}
+                    onClick={() => setQuestionCount(num)}
+                    className={`flex-1 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
+                      questionCount === num ? 'bg-white text-[#1e88e5] shadow-md' : 'bg-white/20 text-white hover:bg-white/30'
+                    }`}
+                  >
+                    {num === 9999 ? 'Hepsi' : num}
+                  </button>
+                ))}
+              </div>
+              <button 
+                onClick={() => startExam('custom')}
+                disabled={selectedTopicIds.length === 0 || dbCount === 0}
+                className="w-full bg-[#1565c0] hover:bg-[#0d47a1] disabled:bg-blue-400/50 disabled:cursor-not-allowed text-white py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+              >
+                Soru Çözmeye Başla <ArrowRight size={14} className="sm:w-4 sm:h-4" />
+              </button>
+            </div>
           </div>
 
           {/* Right: Stats */}
-          <div className="flex-1 flex flex-col justify-between py-2">
-            <div className="grid grid-cols-3 gap-4 mb-8">
-              <div className="border-2 border-[#1e88e5] rounded-2xl p-4 text-center flex flex-col justify-center">
-                <div className="text-xs font-semibold text-slate-500 mb-1">Veritabanı</div>
-                <div className="text-4xl font-bold text-slate-800">{dbCount}</div>
-                <div className="text-xs text-slate-500 mt-1">Soru</div>
+          <div className="flex-1 md:flex-[4] flex flex-col gap-4 min-h-0 shrink-0 md:shrink">
+            <div className="bg-white rounded-3xl p-4 sm:p-6 shadow-sm border border-slate-100 flex-1 flex flex-col justify-center items-center text-center relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-400 to-purple-500"></div>
+              
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-2 sm:mb-4">
+                <Trophy size={24} className="sm:w-7 sm:h-7" />
               </div>
-              <div className="border-2 border-purple-700 rounded-2xl p-4 text-center flex flex-col justify-center">
-                <div className="text-xs font-semibold text-slate-500 mb-1">Hedef</div>
-                <div className="text-4xl font-bold text-slate-800">1040</div>
-                <div className="text-xs text-slate-500 mt-1">Soru</div>
+              <h3 className="text-lg sm:text-xl font-bold text-slate-800 mb-0.5 sm:mb-1">Genel İlerleme</h3>
+              <p className="text-slate-500 text-[10px] sm:text-xs mb-4 sm:mb-6">Tüm konulardaki genel başarı durumunuz.</p>
+              
+              <div className="w-full grid grid-cols-2 gap-2 sm:gap-3">
+                <div className="bg-slate-50 rounded-2xl p-3 sm:p-4 border border-slate-100">
+                  <div className="text-2xl sm:text-3xl font-black text-blue-600 mb-0.5 sm:mb-1">{solvedQuestions.length}</div>
+                  <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Çözülen Soru</div>
+                </div>
+                <div className="bg-slate-50 rounded-2xl p-3 sm:p-4 border border-slate-100">
+                  <div className="text-2xl sm:text-3xl font-black text-purple-600 mb-0.5 sm:mb-1">{dbCount}</div>
+                  <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Toplam Soru</div>
+                </div>
               </div>
-              <div 
-                className="border-2 border-purple-700 rounded-2xl p-4 text-center cursor-pointer hover:bg-purple-50 transition-colors flex flex-col justify-center items-center group"
-                onClick={() => setView('database')}
-              >
-                <div className="text-xs font-semibold text-slate-500 mb-2">Veritabanı</div>
-                <Database size={32} className="text-purple-700 group-hover:scale-110 transition-transform" />
-                <div className="text-xs text-slate-500 mt-2">Yönetimi</div>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-2xl">
-              <div className="flex justify-between text-sm font-bold text-slate-700 mb-3">
-                <span>Veritabanı İlerlemesi: {dbCount} / 1040</span>
-                <span>{Math.round((dbCount / 1040) * 100)}%</span>
-              </div>
-              <div className="h-4 bg-slate-200 rounded-full overflow-hidden">
-                <div className="h-full bg-[#1e88e5] rounded-full transition-all duration-1000" style={{ width: `${(dbCount / 1040) * 100}%` }}></div>
+              
+              {/* Progress Bar */}
+              <div className="w-full mt-4 sm:mt-6">
+                <div className="flex justify-between text-[9px] sm:text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+                  <span>İlerleme</span>
+                  <span>{dbCount > 0 ? Math.round((solvedQuestions.length / dbCount) * 100) : 0}%</span>
+                </div>
+                <div className="h-1.5 sm:h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-1000"
+                    style={{ width: `${dbCount > 0 ? (solvedQuestions.length / dbCount) * 100 : 0}%` }}
+                  ></div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm p-8 text-center border border-slate-100">
-          <h3 className="text-xl font-bold text-slate-800 mb-2">Hızlı Sınav</h3>
-          <p className="text-slate-500 text-sm mb-6">Tüm konulardan 30 soruluk hızlı bir sınava başlayın.</p>
-          <button
-            onClick={() => startExam('quick')}
-            disabled={dbCount < 30}
-            className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-8 py-3 rounded-full font-bold transition-all shadow-lg active:scale-95"
-          >
-            Hızlı Sınava Başla
-          </button>
         </div>
       </div>
     );
@@ -346,7 +413,7 @@ export default function App() {
     const isCorrect = selectedAnswer === question.dogruCevap;
 
     return (
-      <div className="max-w-2xl mx-auto flex flex-col h-[100dvh] justify-center p-3 sm:p-4">
+      <div className="max-w-2xl mx-auto flex flex-col h-[100dvh] justify-start px-3 pb-3 pt-8 sm:px-4 sm:pb-4 sm:pt-12">
         <div className="flex flex-col w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[75dvh]">
           {/* Header */}
           <div className="bg-slate-50/50 px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">

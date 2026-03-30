@@ -54,5 +54,32 @@ export const TOPICS: Topic[] = [
   // Pediatrik KBB
   { id: 45, name: 'Adenotonsiller Hastalıklar', weight: 5, category: 'Pediatrik KBB' },
   { id: 46, name: 'Pediatrik Havayolu Problemleri (Laringomalazi vb.)', weight: 5, category: 'Pediatrik KBB' },
-  { id: 47, name: 'Konjenital Boyun Kitleleri', weight: 4, category: 'Pediatrik KBB' }
+  { id: 47, name: 'Konjenital Boyun Kitleleri', weight: 4, category: 'Pediatrik KBB' },
+
+  // Fasiyal Plastik ve Maksillofasiyal Travma
+  { id: 48, name: 'Rinoplasti (Estetik ve Fonksiyonel)', weight: 6, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 49, name: 'Fasiyal Flepler ve Greftler', weight: 5, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 50, name: 'Maksillofasiyal Travmalar', weight: 6, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 51, name: 'Otoplasti ve Aurikula Rekonstrüksiyonu', weight: 4, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 52, name: 'Dudak ve Damak Yarıkları', weight: 4, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 53, name: 'Yüz Gençleştirme (Cerrahi ve Medikal)', weight: 3, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+  { id: 54, name: 'Fasiyal Paralizi Rehabilitasyonu', weight: 5, category: 'Fasiyal Plastik ve Maksillofasiyal Travma' },
+
+  // Uyku Tıbbı
+  { id: 55, name: 'Uyku Fizyolojisi ve Polisomnografi', weight: 4, category: 'Uyku Tıbbı' },
+  { id: 56, name: 'Obstrüktif Uyku Apnesi Sendromu (OSAS)', weight: 6, category: 'Uyku Tıbbı' },
+  { id: 57, name: 'Horlama ve Cerrahi Tedavileri', weight: 5, category: 'Uyku Tıbbı' },
+
+  // Oral Kavite, Farenks ve Özofagus
+  { id: 58, name: 'Oral Kavite Anatomisi ve Benign Hastalıkları', weight: 4, category: 'Oral Kavite, Farenks ve Özofagus' },
+  { id: 59, name: 'Oral Kavite Kanserleri', weight: 6, category: 'Oral Kavite, Farenks ve Özofagus' },
+  { id: 60, name: 'Orofarenks ve Hipofarenks Kanserleri', weight: 6, category: 'Oral Kavite, Farenks ve Özofagus' },
+  { id: 61, name: 'Yutma Bozuklukları (Disfaji)', weight: 5, category: 'Oral Kavite, Farenks ve Özofagus' },
+  { id: 62, name: 'Özofagus Hastalıkları ve Yabancı Cisimleri', weight: 4, category: 'Oral Kavite, Farenks ve Özofagus' },
+
+  // Genel KBB ve Aciller
+  { id: 63, name: 'KBB Acilleri (Hava Yolu, Kanama vb.)', weight: 6, category: 'Genel KBB ve Aciller' },
+  { id: 64, name: 'Sistemik Hastalıkların KBB Bulguları', weight: 5, category: 'Genel KBB ve Aciller' },
+  { id: 65, name: 'Baş Boyun Sendromları ve Genetik', weight: 4, category: 'Genel KBB ve Aciller' },
+  { id: 66, name: 'KBB\'de Görüntüleme Yöntemleri', weight: 4, category: 'Genel KBB ve Aciller' }
 ];

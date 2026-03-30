@@ -1,6 +1,7 @@
 import { Question } from '../types';
 
 const DB_KEY = 'kbb_question_bank';
+const SOLVED_KEY = 'kbb_solved_questions';
 
 export function getQuestions(): Question[] {
   try {
@@ -9,6 +10,21 @@ export function getQuestions(): Question[] {
   } catch {
     return [];
   }
+}
+
+export function getSolvedQuestions(): string[] {
+  try {
+    const data = localStorage.getItem(SOLVED_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markQuestionsAsSolved(questions: string[]) {
+  const existing = new Set(getSolvedQuestions());
+  questions.forEach(q => existing.add(q));
+  localStorage.setItem(SOLVED_KEY, JSON.stringify(Array.from(existing)));
 }
 
 export function saveQuestions(newQuestions: Question[]): number {

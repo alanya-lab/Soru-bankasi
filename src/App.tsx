@@ -25,6 +25,7 @@ export default function App() {
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   const [questionCount, setQuestionCount] = useState<number>(30);
+  const [includeSolved, setIncludeSolved] = useState<boolean>(false);
   
   // Exam state
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -77,10 +78,14 @@ export default function App() {
       }
     }
 
-    const pool = getRandomQuestions(requestedCount, topicNames);
+    const pool = getRandomQuestions(requestedCount, topicNames, includeSolved);
     
     if (pool.length === 0) {
-      setError("Seçilen kriterlere uygun soru bulunamadı. Lütfen önce veritabanına soru ekleyin.");
+      if (!includeSolved) {
+        setError("Seçilen kriterlere uygun YENİ soru bulunamadı. Lütfen 'Çözülmüş soruları dahil et' seçeneğini açın veya yeni soru üretin.");
+      } else {
+        setError("Seçilen kriterlere uygun soru bulunamadı. Lütfen önce veritabanına soru ekleyin.");
+      }
       return;
     }
 
@@ -338,6 +343,15 @@ export default function App() {
 
             {/* Bottom Controls */}
             <div className="shrink-0 space-y-2.5 sm:space-y-3 relative z-10">
+              <div className="flex items-center justify-between bg-white/10 rounded-xl p-2 sm:p-3">
+                <span className="text-white text-[10px] sm:text-xs font-medium">Çözülmüş soruları tekrar sor</span>
+                <button
+                  onClick={() => setIncludeSolved(!includeSolved)}
+                  className={`w-10 h-5 sm:w-12 sm:h-6 rounded-full transition-colors relative ${includeSolved ? 'bg-green-400' : 'bg-slate-400/50'}`}
+                >
+                  <div className={`w-4 h-4 sm:w-5 sm:h-5 bg-white rounded-full absolute top-0.5 transition-transform ${includeSolved ? 'translate-x-5 sm:translate-x-6' : 'translate-x-0.5'}`}></div>
+                </button>
+              </div>
               <div className="flex gap-1.5 sm:gap-2">
                 {[10, 20, 30, 50, 9999].map(num => (
                   <button

@@ -40,11 +40,18 @@ export function clearQuestions() {
   localStorage.removeItem(DB_KEY);
 }
 
-export function getRandomQuestions(count: number, topicNames?: string[]): Question[] {
+export function getRandomQuestions(count: number, topicNames?: string[], includeSolved: boolean = true): Question[] {
   let pool = getQuestions();
+  
   if (topicNames && topicNames.length > 0) {
     pool = pool.filter(q => q.topic && topicNames.includes(q.topic));
   }
+
+  if (!includeSolved) {
+    const solved = new Set(getSolvedQuestions());
+    pool = pool.filter(q => !solved.has(q.soru.trim()));
+  }
+
   const shuffled = [...pool].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);
 }

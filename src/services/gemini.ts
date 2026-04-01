@@ -52,24 +52,28 @@ export async function generateExamQuestions(
 Soruların konulara göre dağılımı tam olarak şu şekilde olmalıdır:
 ${distributionText}
 
-ÖNEMLİ ÇEŞİTLİLİK KURALI: Önceki ürettiğin klasik soruları KESİNLİKLE TEKRAR ETME! Yepyeni, farklı ve spesifik sorular üret.
-Bu partide özellikle şu alanlara odaklan: ${shuffledFocus.join(" ve ")}.
-Soruları kurgularken farklı hasta yaşları (örneğin 4 yaşında çocuk, 72 yaşında diyabetik amca), farklı semptom kombinasyonları ve spesifik laboratuvar/görüntüleme bulguları kullan. İnternetteki güncel KBB makalelerinden ve vaka sunumlarından ilham al.`;
+ÖNEMLİ ÇEŞİTLİLİK VE KALİTE KURALI: 
+1. Önceki ürettiğin klasik soruları KESİNLİKLE TEKRAR ETME! Yepyeni, farklı ve spesifik sorular üret.
+2. Soruların en az %70'i uzun klinik vaka senaryolarından (hasta yaşı, cinsiyeti, semptom süresi, laboratuvar/görüntüleme bulguları içeren) oluşmalıdır.
+3. Çeldiriciler (yanlış şıklar) çok güçlü olmalı ve sıklıkla yapılan klinik hataları veya benzer hastalıkları yansıtmalıdır.
+4. Bu partide özellikle şu alanlara odaklan: ${shuffledFocus.join(" ve ")}.
+5. İnternetteki güncel KBB makalelerinden, uluslararası kılavuzlardan (NCCN, AAO-HNS vb.) ve vaka sunumlarından ilham al.`;
     
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview', // Switched to flash for higher rate limits
+        model: 'gemini-3.1-pro-preview', // Switched to pro for higher reasoning and better medical questions
         contents: prompt,
         config: {
-          temperature: 0.9, // Higher temperature for more variety
+          temperature: 0.7, // Balanced temperature for creativity but clinical accuracy
           tools: [{ googleSearch: {} }], // Enable Google Search for real-world grounding
           systemInstruction: `Sen KBB (Kulak Burun Boğaz) Board / Yeterlilik sınavı hazırlayan uzman bir profesörsün. Sana verilen konu dağılımına göre çoktan seçmeli sorular üreteceksin.
 Kurallar:
 1. Sorular TUS seviyesinde DEĞİL, KBB asistanları ve uzmanlarına yönelik çok zor, detaylı ve klinik senaryo ağırlıklı (Board seviyesi) olmalıdır.
 2. Her soru KESİNLİKLE 5 seçenekli (A, B, C, D, E) olmalıdır.
-3. Seçenekler birbirine çok yakın, çeldiricisi son derece yüksek olmalıdır.
+3. Seçenekler birbirine çok yakın, çeldiricisi son derece yüksek olmalıdır. Basit ve hemen elenebilecek şıklar KULLANMA.
 4. Sadece güncel literatüre ve uluslararası kılavuzlara dayan.
-5. Çıktıyı SADECE aşağıdaki JSON formatında ver, metin veya yorum ekleme:
+5. Açıklama kısmı çok detaylı olmalı; neden doğru cevabın o olduğunu açıklarken, diğer şıkların neden yanlış olduğunu da (çeldiricilerin analizini) kısaca belirtmelidir.
+6. Çıktıyı SADECE aşağıdaki JSON formatında ver, metin veya yorum ekleme:
 [
   {
     "topic": "Sorunun ait olduğu konu başlığı",
@@ -82,7 +86,7 @@ Kurallar:
       "E": "5. seçenek"
     },
     "dogruCevap": "A",
-    "aciklama": "Doğru cevabın metinle eşleşen kısa açıklaması"
+    "aciklama": "Doğru cevabın detaylı açıklaması ve diğer şıkların neden yanlış olduğunun analizi"
   }
 ]`,
           responseMimeType: 'application/json',

@@ -1,5 +1,6 @@
 import { Question, SheetSyncConfig } from '../types';
 import { TOPICS } from '../constants';
+import { resolveCategoryForTopic } from './db';
 
 const SHEET_CONFIG_KEY = 'kbb_sheet_sync_config';
 
@@ -170,17 +171,8 @@ export function parseCSVToQuestions(csvText: string): { questions: Question[]; s
     let topic = colTopic !== -1 ? row[colTopic] : (row[1] || '');
 
     // Kategori ve Konu normalizasyonu
-    if (!category && topic) {
-      const matched = TOPICS.find(t => t.name.toLowerCase() === topic.toLowerCase());
-      if (matched) category = matched.category;
-    }
-    if (!topic && category) {
-      topic = category;
-    }
-    if (!category && !topic) {
-      category = 'Genel KBB';
-      topic = 'Genel KBB';
-    }
+    topic = (topic || category || 'Genel').trim();
+    category = resolveCategoryForTopic(topic, category);
 
     questions.push({
       soru: soruMetni,

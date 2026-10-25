@@ -36,7 +36,8 @@ import {
   Trash2,
   ExternalLink,
   Sparkles,
-  Info
+  Info,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -56,7 +57,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Setup / Exam Config state
-  const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<string[]>(['Rinoloji']);
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [includeSolved, setIncludeSolved] = useState<boolean>(false);
@@ -69,7 +70,18 @@ export default function App() {
   const [timer, setTimer] = useState(0);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [forceShowExplanation, setForceShowExplanation] = useState(false);
+  const [isExplanationOpen, setIsExplanationOpen] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right'>('left');
+  const [swipeOffset, setSwipeOffset] = useState<number>(0);
   const [copiedQuestionId, setCopiedQuestionId] = useState<number | null>(null);
+  const touchStateRef = React.useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    time: number;
+    triggered: boolean;
+  } | null>(null);
 
   // Database Search state
   const [dbSearch, setDbSearch] = useState('');
@@ -138,8 +150,8 @@ export default function App() {
       requestedCount = 100;
     } else if (mode === 'custom') {
       requestedCount = questionCount;
-      if (selectedTopicIds.length > 0) {
-        topicNames = TOPICS.filter(t => selectedTopicIds.includes(t.id)).map(t => t.name);
+      if (selectedTopics.length > 0) {
+        topicNames = selectedTopics;
       }
     }
 
@@ -160,15 +172,22 @@ export default function App() {
     setTimer(0);
     setIsTimerActive(true);
     setForceShowExplanation(false);
+    setIsExplanationOpen(false);
+    setSlideDirection('left');
     setView('exam');
   };
 
   const handleAnswer = (key: string) => {
     if (answers[currentIndex]) return;
     setAnswers(prev => ({ ...prev, [currentIndex]: key }));
+    // Do NOT open explanation automatically; let user open via "Çözümü İncele" button
+    setIsExplanationOpen(false);
   };
 
   const nextQuestion = () => {
+    setSwipeOffset(0);
+    setSlideDirection('left');
+    setIsExplanationOpen(false);
     setForceShowExplanation(false);
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
@@ -184,25 +203,138 @@ export default function App() {
   };
 
   const prevQuestion = () => {
+    setSwipeOffset(0);
+    setSlideDirection('right');
+    setIsExplanationOpen(false);
     setForceShowExplanation(false);
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
     }
   };
 
-  const toggleTopic = (id: number) => {
-    setSelectedTopicIds(prev => 
-      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStateRef.current = {
+        startX: e.touches[0].clientX,
+        startY: e.touches[0].clientY,
+        currentX: e.touches[0].clientX,
+        currentY: e.touches[0].clientY,
+        time: Date.now(),
+        triggered: false
+      };
+      setSwipeOffset(0);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStateRef.current || touchStateRef.current.triggered || e.touches.length === 0) return;
+    const currentX = e.touches[0].clientX;
+    const currentY = e.touches[0].clientY;
+    touchStateRef.current.currentX = currentX;
+    touchStateRef.current.currentY = currentY;
+
+    const deltaX = currentX - touchStateRef.current.startX;
+    const deltaY = currentY - touchStateRef.current.startY;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+
+    // Provide visual displacement when dragging horizontally
+    if (absX > 10 && absX > absY) {
+      setSwipeOffset(deltaX * 0.35);
+    }
+
+    // Direct threshold during drag (>= 50px horizontally)
+    if (absX >= 50 && absX > absY * 1.25) {
+      touchStateRef.current.triggered = true;
+      setSwipeOffset(0);
+      if (deltaX < 0) {
+        nextQuestion();
+      } else {
+        prevQuestion();
+      }
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    setSwipeOffset(0);
+    if (!touchStateRef.current) return;
+    const state = touchStateRef.current;
+    touchStateRef.current = null;
+
+    if (state.triggered) return;
+
+    let endX = state.currentX;
+    let endY = state.currentY;
+    if (e.changedTouches && e.changedTouches.length > 0) {
+      endX = e.changedTouches[0].clientX;
+      endY = e.changedTouches[0].clientY;
+    }
+
+    const deltaX = endX - state.startX;
+    const deltaY = endY - state.startY;
+    const deltaTime = Date.now() - state.time;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+
+    // Fast flick gesture: at least 30px in under 600ms
+    if (absX >= 30 && absX > absY * 1.15 && deltaTime < 600) {
+      if (deltaX < 0) {
+        nextQuestion();
+      } else {
+        prevQuestion();
+      }
+    }
+  };
+
+  const handleTouchCancel = () => {
+    setSwipeOffset(0);
+    if (touchStateRef.current && !touchStateRef.current.triggered) {
+      const state = touchStateRef.current;
+      const deltaX = state.currentX - state.startX;
+      const deltaY = state.currentY - state.startY;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      if (absX >= 35 && absX > absY * 1.15) {
+        state.triggered = true;
+        if (deltaX < 0) {
+          nextQuestion();
+        } else {
+          prevQuestion();
+        }
+      }
+    }
+    touchStateRef.current = null;
+  };
+
+  // Keyboard navigation during exam (Left / Right arrows)
+  useEffect(() => {
+    if (view !== 'exam') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
+      if (e.key === 'ArrowRight') {
+        nextQuestion();
+      } else if (e.key === 'ArrowLeft') {
+        prevQuestion();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [view, currentIndex, questions.length, answers]);
+
+  const toggleTopic = (topicName: string) => {
+    setSelectedTopics(prev => 
+      prev.includes(topicName) ? prev.filter(t => t !== topicName) : [...prev, topicName]
     );
   };
 
-  const toggleCategorySelect = (category: string) => {
-    const categoryTopicIds = TOPICS.filter(t => t.category === category).map(t => t.id);
-    const allSelected = categoryTopicIds.every(id => selectedTopicIds.includes(id));
+  const toggleCategorySelect = (topics: { name: string }[]) => {
+    const topicNames = topics.map(t => t.name);
+    const allSelected = topicNames.length > 0 && topicNames.every(name => selectedTopics.includes(name));
     if (allSelected) {
-      setSelectedTopicIds(prev => prev.filter(id => !categoryTopicIds.includes(id)));
+      setSelectedTopics(prev => prev.filter(name => !topicNames.includes(name)));
     } else {
-      setSelectedTopicIds(prev => Array.from(new Set([...prev, ...categoryTopicIds])));
+      setSelectedTopics(prev => Array.from(new Set([...prev, ...topicNames])));
     }
   };
 
@@ -325,7 +457,7 @@ export default function App() {
                 <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                   <span>Hadi Çözelim</span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/20 text-white">
-                    {selectedTopicIds.length > 0 ? `${selectedTopicIds.length} Konu Seçili` : 'Tüm Konular'}
+                    {selectedTopics.length > 0 ? `${selectedTopics.length} Konu Seçili` : 'Tüm Konular'}
                   </span>
                 </h2>
                 <p className="text-[11px] text-blue-100">Ana başlığa tıklayıp alt konuları açın ve soruları seçin.</p>
@@ -356,9 +488,9 @@ export default function App() {
             <div className="flex-1 overflow-y-auto pr-1 my-2.5 space-y-2 custom-scrollbar">
               {categoryStats.map(cat => {
                 const isExpanded = expandedCategories.includes(cat.category);
-                const categoryTopicIds = TOPICS.filter(t => t.category === cat.category).map(t => t.id);
-                const allSelected = categoryTopicIds.length > 0 && categoryTopicIds.every(id => selectedTopicIds.includes(id));
-                const someSelected = categoryTopicIds.some(id => selectedTopicIds.includes(id));
+                const categoryTopicNames = cat.topics.map(t => t.name);
+                const allSelected = categoryTopicNames.length > 0 && categoryTopicNames.every(name => selectedTopics.includes(name));
+                const someSelected = categoryTopicNames.some(name => selectedTopics.includes(name));
 
                 return (
                   <div 
@@ -382,7 +514,10 @@ export default function App() {
                         </span>
 
                         <button
-                          onClick={() => toggleCategorySelect(cat.category)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCategorySelect(cat.topics);
+                          }}
                           className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${
                             allSelected 
                               ? 'bg-white border-white text-[#1e88e5]' 
@@ -401,16 +536,12 @@ export default function App() {
                     {isExpanded && (
                       <div className="flex flex-col gap-1 px-2 pb-2.5 pt-0.5 border-t border-white/10 bg-black/10">
                         {cat.topics.map(topic => {
-                          const topicDef = TOPICS.find(t => t.name === topic.name && t.category === cat.category);
-                          const topicId = topicDef ? topicDef.id : -1;
-                          const isSelected = topicId !== -1 && selectedTopicIds.includes(topicId);
+                          const isSelected = selectedTopics.includes(topic.name);
 
                           return (
                             <button
                               key={topic.name}
-                              onClick={() => {
-                                if (topicId !== -1) toggleTopic(topicId);
-                              }}
+                              onClick={() => toggleTopic(topic.name)}
                               className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-between ${
                                 isSelected 
                                   ? 'bg-white text-blue-900 shadow-sm font-semibold' 
@@ -474,7 +605,7 @@ export default function App() {
                 disabled={totalQuestionsCount === 0}
                 className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm transition shadow-lg active:scale-98 flex items-center justify-center gap-2"
               >
-                <span>Sınavı Başlat ({questionCount === 9999 ? 'Tüm Havuz' : `${questionCount} Soru`})</span>
+                <span>Sınavı Başlat ({selectedTopics.length > 0 ? `${selectedTopics.length} Konu Seçili` : 'Tüm Konular'} - {questionCount === 9999 ? 'Tüm Havuz' : `${questionCount} Soru`})</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -592,146 +723,349 @@ export default function App() {
     const isCorrect = selectedAnswer === question.dogruCevap;
 
     return (
-      <div className="max-w-3xl mx-auto flex flex-col h-[100dvh] justify-start p-3 sm:p-4 select-none">
-        <div className="flex flex-col w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200/80 max-h-[92dvh]">
+      <div 
+        className="fixed inset-0 w-full h-[100dvh] overflow-hidden flex flex-col justify-between bg-slate-900/10 sm:bg-[#edf2f7] p-0 sm:p-3 select-none overscroll-none"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+      >
+        <div className="flex flex-col w-full max-w-3xl mx-auto bg-white sm:rounded-3xl shadow-xl overflow-hidden border-x sm:border border-slate-200/80 h-full relative">
           
           {/* Exam Header */}
-          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200/80 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="bg-slate-50 px-3.5 py-2.5 sm:px-4 sm:py-3 border-b border-slate-200/80 flex items-center justify-between shrink-0 z-10">
+            <div className="flex items-center gap-2.5 sm:gap-3">
               <button 
                 onClick={() => setView('dashboard')}
-                className="p-1.5 rounded-xl bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 transition"
+                className="p-1.5 rounded-xl bg-white shadow-2xs border border-slate-200 text-slate-600 hover:text-blue-600 transition"
                 title="Ana Sayfaya Dön"
               >
                 <ArrowLeft className="w-4 h-4" />
               </button>
-              <div>
+              <div className="truncate max-w-[170px] sm:max-w-xs">
                 <span className="text-xs font-bold text-blue-700">
                   {question.category || 'KBB Sınavı'}
                 </span>
                 <span className="text-slate-400 mx-1.5">•</span>
-                <span className="text-[11px] text-slate-500 font-medium">{question.topic || 'Genel'}</span>
+                <span className="text-[11px] text-slate-500 font-medium truncate">{question.topic || 'Genel'}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm">
-                Soru {currentIndex + 1} / {questions.length}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                {currentIndex + 1} / {questions.length}
               </span>
-              <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+              <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-lg border border-blue-200">
                 {formatTime(timer)}
               </span>
             </div>
           </div>
 
-          {/* Exam Question Body */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-            {/* Question Text */}
-            <div className="text-sm sm:text-base font-semibold text-slate-800 leading-relaxed bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-              {question.soru}
-            </div>
-
-            {/* Options List A - E */}
-            <div className="space-y-2.5">
-              {(['A', 'B', 'C', 'D', 'E'] as const).map((opt) => {
-                const optText = question.secenekler[opt];
-                if (!optText) return null;
-
-                let optClass = 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700';
-
-                if (showResult) {
-                  if (opt === question.dogruCevap) {
-                    optClass = 'bg-emerald-50 border-emerald-500 text-emerald-900 font-semibold ring-1 ring-emerald-500';
-                  } else if (selectedAnswer === opt) {
-                    optClass = 'bg-rose-50 border-rose-500 text-rose-900 font-semibold ring-1 ring-rose-500';
-                  } else {
-                    optClass = 'bg-slate-50/50 border-slate-200 text-slate-400 opacity-60';
-                  }
-                }
-
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => handleAnswer(opt)}
-                    disabled={showResult}
-                    className={`w-full p-3 sm:p-3.5 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-start gap-3 ${optClass}`}
-                  >
-                    <span className={`w-6 h-6 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
-                      showResult && opt === question.dogruCevap
-                        ? 'bg-emerald-600 text-white'
-                        : showResult && selectedAnswer === opt
-                        ? 'bg-rose-600 text-white'
-                        : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {opt}
-                    </span>
-                    <span className="flex-1 pt-0.5">{optText}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Explanation Section */}
-            {(showResult || forceShowExplanation) && (
-              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs sm:text-sm text-slate-800 space-y-2 animate-fade-in">
-                <div className="font-bold text-amber-900 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    Doğru Cevap: {question.dogruCevap}
-                  </span>
-                  
-                  {/* Copy Question to Sheet Row */}
-                  <button
-                    onClick={() => handleCopySingleQuestion(question, currentIndex)}
-                    className="text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-xs"
-                    title="Bu soruyu E-Tablo satırı olarak panoya kopyala"
-                  >
-                    {copiedQuestionId === currentIndex ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" />
-                        <span className="text-emerald-700">Satır Kopyalandı</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        E-Tablo Satırı Kopyala
-                      </>
-                    )}
-                  </button>
+          {/* Exam Question Body with smooth horizontal slide transition */}
+          <div 
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-3.5 sm:p-6 custom-scrollbar"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+          >
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentIndex}
+                initial={{ opacity: 0, x: slideDirection === 'left' ? 35 : -35 }}
+                animate={{ opacity: 1, x: swipeOffset }}
+                exit={{ opacity: 0, x: slideDirection === 'left' ? -35 : 35 }}
+                transition={{ duration: swipeOffset !== 0 ? 0 : 0.16, ease: "easeOut" }}
+                className="space-y-4"
+              >
+                {/* Question Text */}
+                <div className="text-xs sm:text-base font-semibold text-slate-800 leading-relaxed bg-slate-50/80 p-3.5 sm:p-4 rounded-2xl border border-slate-100/90 shadow-2xs">
+                  {question.soru}
                 </div>
-                <p className="text-slate-700 leading-relaxed text-xs">
-                  {question.aciklama || 'Bu soru için henüz ek bir klinik açıklama girilmedi.'}
-                </p>
-              </div>
-            )}
+
+                {/* Options List A - E */}
+                <div className="space-y-2">
+                  {(['A', 'B', 'C', 'D', 'E'] as const).map((opt) => {
+                    const optText = question.secenekler[opt];
+                    if (!optText) return null;
+
+                    let optClass = 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700';
+
+                    if (showResult) {
+                      if (opt === question.dogruCevap) {
+                        optClass = 'bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold ring-1 ring-emerald-500';
+                      } else if (selectedAnswer === opt) {
+                        optClass = 'bg-rose-50 border-rose-500 text-rose-950 font-semibold ring-1 ring-rose-500';
+                      } else {
+                        optClass = 'bg-slate-50/50 border-slate-200 text-slate-400 opacity-60';
+                      }
+                    }
+
+                    return (
+                      <button
+                        key={opt}
+                        onClick={() => handleAnswer(opt)}
+                        disabled={showResult}
+                        className={`w-full p-2.5 sm:p-3 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-start gap-2.5 active:scale-[0.99] ${optClass}`}
+                      >
+                        <span className={`w-6 h-6 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
+                          showResult && opt === question.dogruCevap
+                            ? 'bg-emerald-600 text-white'
+                            : showResult && selectedAnswer === opt
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {opt}
+                        </span>
+                        <span className="flex-1 pt-0.5 leading-snug">{optText}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Explicit action bar inside card when answered: no annoying pop-up unless user taps this */}
+                {showResult && (
+                  <div className="pt-2">
+                    <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+                        {isCorrect ? (
+                          <span className="text-emerald-700 flex items-center gap-1.5 font-bold">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            Doğru! (Cevap: {question.dogruCevap})
+                          </span>
+                        ) : (
+                          <span className="text-rose-700 flex items-center gap-1.5 font-bold">
+                            <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                            Yanlış! Doğru Cevap: {question.dogruCevap}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsExplanationOpen(true)}
+                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Çözümü & Açıklamayı İncele</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mobile / Touch Swipe Tip */}
+                <div className="pt-2 text-center text-[11px] text-slate-400 font-medium">
+                  ← Sorular arasında geçiş yapmak için ekranı sola/sağa kaydırabilirsiniz →
+                </div>
+              </motion.div>
+            </AnimatePresence>
           </div>
 
+          {/* Quick bar banner when answered and bottom sheet closed */}
+          {showResult && !isExplanationOpen && (
+            <div className="px-3.5 py-2 bg-amber-50/90 border-t border-amber-200/90 flex items-center justify-between shrink-0 animate-fade-in">
+              <div className="flex items-center gap-1.5 text-xs font-semibold">
+                {isCorrect ? (
+                  <span className="text-emerald-700 flex items-center gap-1 font-bold">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Doğru! (Cevap: {question.dogruCevap})
+                  </span>
+                ) : (
+                  <span className="text-rose-700 flex items-center gap-1 font-bold">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" /> Yanlış! Doğru Cevap: {question.dogruCevap}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setIsExplanationOpen(true)}
+                className="text-xs font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300/80 px-3 py-1 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                <span>Çözümü İncele</span>
+              </button>
+            </div>
+          )}
+
           {/* Exam Footer Navigation */}
-          <div className="bg-slate-50 px-4 py-3 border-t border-slate-200 flex items-center justify-between shrink-0">
+          <div className="bg-slate-50 px-3.5 py-2.5 sm:px-4 sm:py-3 border-t border-slate-200 flex items-center justify-between shrink-0 z-10">
             <button
               onClick={prevQuestion}
               disabled={currentIndex === 0}
-              className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition flex items-center gap-1.5"
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition flex items-center gap-1.5 shadow-2xs"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Önceki</span>
             </button>
 
             <button
-              onClick={() => setForceShowExplanation(!forceShowExplanation)}
-              className="text-xs text-slate-500 hover:text-blue-700 font-medium transition"
+              onClick={() => setIsExplanationOpen(prev => !prev)}
+              className="text-xs text-blue-700 hover:text-blue-800 font-bold px-3 py-1.5 rounded-xl bg-blue-50/80 hover:bg-blue-100 border border-blue-200/70 transition flex items-center gap-1.5"
             >
-              {forceShowExplanation ? 'Açıklamayı Gizle' : 'Çözümü Gör'}
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>{isExplanationOpen ? 'Açıklamayı Kapat' : 'Çözüm & Açıklama'}</span>
             </button>
 
             <button
               onClick={nextQuestion}
-              className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition flex items-center gap-1.5 active:scale-95"
+              className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition flex items-center gap-1.5 active:scale-95"
             >
               <span>{currentIndex < questions.length - 1 ? 'Sonraki' : 'Sınavı Bitir'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* ============================================================ */}
+          {/*      SEPARATE EXPLANATION BOTTOM SHEET / POP-UP DRAWER       */}
+          {/* ============================================================ */}
+          <AnimatePresence>
+            {isExplanationOpen && (
+              <>
+                {/* Backdrop overlay */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={() => setIsExplanationOpen(false)}
+                  className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs z-20"
+                />
+
+                {/* Bottom Sheet Modal */}
+                <motion.div
+                  initial={{ y: '100%' }}
+                  animate={{ y: 0 }}
+                  exit={{ y: '100%' }}
+                  transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+                  className="absolute bottom-0 left-0 right-0 max-h-[82%] sm:max-h-[75%] bg-white rounded-t-3xl shadow-2xl border-t border-slate-200 z-30 flex flex-col overflow-hidden"
+                >
+                  {/* Drag Handle Bar */}
+                  <div 
+                    className="w-full pt-2.5 pb-1 flex justify-center cursor-pointer shrink-0"
+                    onClick={() => setIsExplanationOpen(false)}
+                  >
+                    <div className="w-12 h-1.5 rounded-full bg-slate-300 hover:bg-slate-400 transition" />
+                  </div>
+
+                  {/* Header */}
+                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-2">
+                      {showResult ? (
+                        isCorrect ? (
+                          <span className="flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            Doğru Cevap: {question.dogruCevap}
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs font-bold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                            <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                            Yanlış! Doğru: {question.dogruCevap}
+                          </span>
+                        )
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                          <Info className="w-3.5 h-3.5" />
+                          Doğru Cevap: {question.dogruCevap}
+                        </span>
+                      )}
+
+                      <span className="text-[11px] text-slate-500 font-medium px-2 py-0.5 rounded-md bg-slate-100 truncate max-w-[140px] sm:max-w-xs">
+                        {question.topic}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleCopySingleQuestion(question, currentIndex)}
+                        className="text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1 bg-slate-50 hover:bg-slate-100 px-2 py-1 rounded-lg border border-slate-200 transition shadow-2xs"
+                        title="Bu soruyu E-Tablo satırı olarak panoya kopyala"
+                      >
+                        {copiedQuestionId === currentIndex ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-700 font-bold">Kopyalandı</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>E-Tablo Satırı</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => setIsExplanationOpen(false)}
+                        className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
+                        title="Kapat"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable Explanation Content */}
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y p-4 sm:p-5 custom-scrollbar">
+                    <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 sm:p-4 mb-3">
+                      <h4 className="text-xs font-bold text-amber-900 mb-1.5 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        Klinik Çözüm & Detaylı Açıklama
+                      </h4>
+                      <p className="text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-line">
+                        {question.aciklama || 'Bu soru için henüz ek bir klinik açıklama girilmedi.'}
+                      </p>
+                    </div>
+
+                    {/* Option Reference Recap inside explanation */}
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Şıkların Özeti</span>
+                      {(['A', 'B', 'C', 'D', 'E'] as const).map(opt => {
+                        const optText = question.secenekler[opt];
+                        if (!optText) return null;
+                        const isCorrectOption = opt === question.dogruCevap;
+                        const isUserChoice = selectedAnswer === opt;
+
+                        return (
+                          <div 
+                            key={opt}
+                            className={`p-2 rounded-xl text-xs flex items-start gap-2 border ${
+                              isCorrectOption 
+                                ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 font-medium'
+                                : isUserChoice
+                                ? 'bg-rose-50/80 border-rose-200 text-rose-900'
+                                : 'bg-slate-50/60 border-slate-100 text-slate-600'
+                            }`}
+                          >
+                            <span className={`w-5 h-5 rounded-md text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                              isCorrectOption ? 'bg-emerald-600 text-white' : isUserChoice ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'
+                            }`}>
+                              {opt}
+                            </span>
+                            <span className="pt-0.5 leading-snug">{optText}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Sheet Bottom Footer Actions */}
+                  <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+                    <button
+                      onClick={() => setIsExplanationOpen(false)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition"
+                    >
+                      Kapat & Soruyu İncele
+                    </button>
+
+                    <button
+                      onClick={nextQuestion}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition flex items-center gap-1.5 active:scale-95"
+                    >
+                      <span>{currentIndex < questions.length - 1 ? 'Sonraki Soru' : 'Sınavı Bitir'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
 
         </div>
       </div>

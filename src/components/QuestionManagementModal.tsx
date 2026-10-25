@@ -14,7 +14,9 @@ import {
   saveQuestions, 
   replaceQuestions, 
   clearQuestions,
-  getQuestions 
+  getQuestions,
+  resolveCategoryForTopic,
+  normalizeQuestion 
 } from '../services/db';
 import { 
   X, 
@@ -237,8 +239,8 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
         };
         const ans = (item.dogruCevap || item.answer || 'A').toUpperCase().match(/[A-E]/)?.[0] || 'A';
         const exp = item.aciklama || item.explanation || '';
-        const topic = item.topic || item.konu || 'Genel';
-        const cat = item.category || item.kategori || 'Genel KBB';
+        const topic = (item.topic || item.konu || 'Genel').trim();
+        const cat = resolveCategoryForTopic(topic, item.category || item.kategori);
 
         if (opts.A && opts.B && opts.C && opts.D && opts.E) {
           validQuestions.push({
@@ -282,11 +284,22 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
     handleCopy(exportQuestionsToTSV(qList), 'allTsv');
   };
 
+  const handleAutoRepairCategories = () => {
+    const list = getQuestions();
+    const repaired = list.map(q => normalizeQuestion(q));
+    replaceQuestions(repaired);
+    onQuestionsUpdated();
+    setJsonMessage({ 
+      type: 'success', 
+      text: `Tüm sorular (${repaired.length}) başarıyla incelendi ve Board ana başlıklarına göre doğru kategorilere dağıtıldı!` 
+    });
+  };
+
   const handleClearBank = () => {
     if (window.confirm('Tüm soru bankasını sıfırlamak istediğinize emin misiniz? Bu işlem geri alınamaz.')) {
       clearQuestions();
       onQuestionsUpdated();
-      setJsonMessage({ type: 'info', text: 'Soru bankası sıfırlandı.' });
+      setJsonMessage({ type: 'error', text: 'Soru bankası sıfırlandı.' });
     }
   };
 
@@ -816,6 +829,15 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                         Tümünü E-Tablo Formatında Kopyala
                       </>
                     )}
+                  </button>
+
+                  <button
+                    onClick={handleAutoRepairCategories}
+                    className="px-4 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-xs font-medium text-blue-300 flex items-center gap-2 transition"
+                    title="Mevcut soruların konularını analiz edip doğru Board ana kategorilerine otomatik dağıtır"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
+                    Kategorileri Otomatik Dağıt & Onar
                   </button>
 
                   <button

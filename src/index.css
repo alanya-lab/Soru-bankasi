@@ -21,6 +21,7 @@ body {
   background-color: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
 }
 
 .custom-scrollbar::-webkit-scrollbar {

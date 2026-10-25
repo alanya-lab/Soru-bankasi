@@ -77,6 +77,90 @@ const SEED_QUESTIONS: Question[] = [
   }
 ];
 
+/**
+ * Resolves or repairs the appropriate Board category for a given topic or existing category
+ */
+export function resolveCategoryForTopic(topic?: string, existingCategory?: string): string {
+  const cleanCat = (existingCategory || '').trim();
+  const cleanTopic = (topic || '').trim().toLowerCase();
+
+  // If already a valid canonical category (and not the generic placeholder 'Genel KBB')
+  if (cleanCat && cleanCat !== 'Genel KBB' && cleanCat !== 'Diğer Konular') {
+    const canonical = TOPICS.find(t => t.category.toLowerCase() === cleanCat.toLowerCase());
+    if (canonical) {
+      return canonical.category;
+    }
+  }
+
+  if (!cleanTopic) {
+    return cleanCat && cleanCat !== 'Genel KBB' ? cleanCat : 'Genel KBB ve Aciller';
+  }
+
+  // 1. Exact match with TOPICS definition
+  const exact = TOPICS.find(t => t.name.toLowerCase().trim() === cleanTopic);
+  if (exact) return exact.category;
+
+  // 2. Substring match with TOPICS definition
+  const sub = TOPICS.find(t => cleanTopic.includes(t.name.toLowerCase().trim()) || t.name.toLowerCase().trim().includes(cleanTopic));
+  if (sub) return sub.category;
+
+  // 3. High-yield Medical Domain keyword matching for Turkish ENT (KBB) Board Topics
+  // Rinoloji
+  if (/(burun|sinüs|sinus|rinit|rhinit|koku|septum|polip|epistaksis|rino|choan|koana|etmoid|sfenoid|maksiller|antrum|frontal|kribriform|papirasea|rinore|turbinat|konka|alerjik|rinokonjonktivit|nazal)/i.test(cleanTopic)) {
+    return 'Rinoloji';
+  }
+
+  // Otoloji & Nörootoloji
+  if (/(kulak|otit|otitis|oto|mastoid|timpan|ossikül|ossikul|stapes|malleus|inkus|carhart|kolesteatom|odyo|işitme|isitme|kohlea|koklea|vestibül|vestibul|vertigo|bppv|meniere|fasial|fasiyal|nistagmus|schwannom|labirent|akustik|aurikula|timpanoplasti|stapedotomi|endolenfatik)/i.test(cleanTopic)) {
+    return 'Otoloji & Nörootoloji';
+  }
+
+  // Baş ve Boyun Cerrahisi
+  if (/(larenks|larynx|glottik|vokal|kord|ses|kordektomi|boyun|servikal|lenf|tiroid|paratiroid|tükürük|tukuruk|salivary|parotis|submandibuler|sublingual|karsinom|skuamöz|skuamoz|laringektomi|disseksiyon)/i.test(cleanTopic)) {
+    return 'Baş ve Boyun Cerrahisi';
+  }
+
+  // Pediatrik KBB
+  if (/(pediatrik|çocuk|cocuk|adenoid|geniz eti|tonsil|bademcik|tonsillit|laringomalazi|trakeomalazi|stridor|krup|tiroglossal|brankiyal)/i.test(cleanTopic)) {
+    return 'Pediatrik KBB';
+  }
+
+  // Fasiyal Plastik ve Maksillofasiyal Travma
+  if (/(rinoplasti|flep|greft|maksillofasiyal|mandibula|maksilla|le fort|zigoma|blowout|travma|otoplasti|dudak damak|mikrotia|blefaroplasti|estetik|rekonstrüksiyon)/i.test(cleanTopic)) {
+    return 'Fasiyal Plastik ve Maksillofasiyal Travma';
+  }
+
+  // Uyku Tıbbı
+  if (/(uyku|apne|osas|ahı|ahi|horlama|polisomnografi|psg|cpap|uppp|uvulopalatofaringoplasti)/i.test(cleanTopic)) {
+    return 'Uyku Tıbbı';
+  }
+
+  // Oral Kavite, Farenks ve Özofagus
+  if (/(oral|ağız|agiz|dil|lingua|uvula|damak|farenks|farinks|orofarenks|hipofarenks|yutma|disfaji|özofagus|ozofagus|zenker|retrofarengeal|parafarengeal)/i.test(cleanTopic)) {
+    return 'Oral Kavite, Farenks ve Özofagus';
+  }
+
+  // Genel KBB ve Aciller
+  if (/(acil|anafilaksi|trakeotomi|entübasyon|yabancı cisim|yabanci cisim|hematom)/i.test(cleanTopic)) {
+    return 'Genel KBB ve Aciller';
+  }
+
+  return 'Genel KBB ve Aciller';
+}
+
+/**
+ * Normalizes question topic and category
+ */
+export function normalizeQuestion(q: Question): Question {
+  const cleanTopic = (q.topic || '').trim() || 'Genel';
+  const finalCategory = resolveCategoryForTopic(cleanTopic, q.category);
+  return {
+    ...q,
+    topic: cleanTopic,
+    category: finalCategory,
+  };
+}
+
 export function getQuestions(): Question[] {
   try {
     const data = localStorage.getItem(DB_KEY);
@@ -86,7 +170,23 @@ export function getQuestions(): Question[] {
       return SEED_QUESTIONS;
     }
     const parsed = JSON.parse(data);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : SEED_QUESTIONS;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Auto-heal / Auto-migrate questions that have 'Genel KBB' or unmapped categories
+      let changed = false;
+      const normalized = parsed.map(q => {
+        const norm = normalizeQuestion(q);
+        if (norm.category !== q.category || norm.topic !== q.topic) {
+          changed = true;
+        }
+        return norm;
+      });
+
+      if (changed) {
+        localStorage.setItem(DB_KEY, JSON.stringify(normalized));
+      }
+      return normalized;
+    }
+    return SEED_QUESTIONS;
   } catch {
     return SEED_QUESTIONS;
   }
@@ -113,8 +213,9 @@ export function markQuestionsAsSolved(questions: string[]) {
 
 export function saveQuestions(newQuestions: Question[]): number {
   const existing = getQuestions();
+  const normalizedNew = newQuestions.map(normalizeQuestion);
   const existingTexts = new Set(existing.map(q => q.soru.trim()));
-  const uniqueNew = newQuestions.filter(q => !existingTexts.has(q.soru.trim()));
+  const uniqueNew = normalizedNew.filter(q => !existingTexts.has(q.soru.trim()));
   const updated = [...existing, ...uniqueNew];
   localStorage.setItem(DB_KEY, JSON.stringify(updated));
   return updated.length;
@@ -122,15 +223,17 @@ export function saveQuestions(newQuestions: Question[]): number {
 
 export function addSingleQuestion(question: Question): number {
   const existing = getQuestions();
+  const normQ = normalizeQuestion(question);
   // Add to beginning of array so newest questions appear first
-  const updated = [question, ...existing.filter(q => q.soru.trim() !== question.soru.trim())];
+  const updated = [normQ, ...existing.filter(q => q.soru.trim() !== normQ.soru.trim())];
   localStorage.setItem(DB_KEY, JSON.stringify(updated));
   return updated.length;
 }
 
 export function replaceQuestions(newQuestions: Question[]): number {
-  localStorage.setItem(DB_KEY, JSON.stringify(newQuestions));
-  return newQuestions.length;
+  const normalizedNew = newQuestions.map(normalizeQuestion);
+  localStorage.setItem(DB_KEY, JSON.stringify(normalizedNew));
+  return normalizedNew.length;
 }
 
 export function deleteQuestionByIndex(index: number): Question[] {
@@ -185,7 +288,23 @@ export function getCategoryAndTopicStats(allQuestions: Question[], solvedQuestio
   const solvedSet = new Set(solvedQuestionsList.map(s => s.toLowerCase().trim()));
   const categoryMap = new Map<string, { total: number; solved: number; topicMap: Map<string, { total: number; solved: number }> }>();
 
-  // Initialize with predefined categories from TOPICS
+  // Initialize with canonical categories in official order
+  const canonicalCategories = [
+    'Rinoloji',
+    'Otoloji & Nörootoloji',
+    'Baş ve Boyun Cerrahisi',
+    'Pediatrik KBB',
+    'Fasiyal Plastik ve Maksillofasiyal Travma',
+    'Uyku Tıbbı',
+    'Oral Kavite, Farenks ve Özofagus',
+    'Genel KBB ve Aciller',
+  ];
+
+  canonicalCategories.forEach(cat => {
+    categoryMap.set(cat, { total: 0, solved: 0, topicMap: new Map() });
+  });
+
+  // Also pre-seed standard topics into each canonical category
   TOPICS.forEach(t => {
     if (!categoryMap.has(t.category)) {
       categoryMap.set(t.category, { total: 0, solved: 0, topicMap: new Map() });
@@ -198,19 +317,8 @@ export function getCategoryAndTopicStats(allQuestions: Question[], solvedQuestio
 
   // Tally actual questions
   allQuestions.forEach(q => {
-    let cat = q.category;
-    let topic = q.topic;
-
-    if (!cat && topic) {
-      const found = TOPICS.find(t => t.name.toLowerCase() === topic!.toLowerCase());
-      cat = found ? found.category : 'Diğer Konular';
-    } else if (!cat) {
-      cat = 'Diğer Konular';
-    }
-
-    if (!topic) {
-      topic = 'Genel';
-    }
+    const topic = (q.topic || 'Genel').trim();
+    const cat = resolveCategoryForTopic(topic, q.category);
 
     if (!categoryMap.has(cat)) {
       categoryMap.set(cat, { total: 0, solved: 0, topicMap: new Map() });
@@ -235,14 +343,17 @@ export function getCategoryAndTopicStats(allQuestions: Question[], solvedQuestio
   categoryMap.forEach((data, category) => {
     const topicsArr: { name: string; total: number; solved: number }[] = [];
     data.topicMap.forEach((tData, tName) => {
-      topicsArr.push({
-        name: tName,
-        total: tData.total,
-        solved: tData.solved,
-      });
+      // If category has questions, prioritize topics with questions (total > 0)
+      if (data.total === 0 || tData.total > 0) {
+        topicsArr.push({
+          name: tName,
+          total: tData.total,
+          solved: tData.solved,
+        });
+      }
     });
 
-    // Sort topics: ones with questions first, then alphabetical
+    // Sort topics: ones with questions first, then descending total, then alphabetical
     topicsArr.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'tr'));
 
     summaries.push({
@@ -253,6 +364,13 @@ export function getCategoryAndTopicStats(allQuestions: Question[], solvedQuestio
     });
   });
 
-  // Sort categories: ones with questions first
-  return summaries.sort((a, b) => b.totalQuestions - a.totalQuestions);
+  // Sort categories: categories with questions first, followed by canonical order
+  return summaries.sort((a, b) => {
+    if (b.totalQuestions !== a.totalQuestions) {
+      return b.totalQuestions - a.totalQuestions;
+    }
+    const aIdx = canonicalCategories.indexOf(a.category);
+    const bIdx = canonicalCategories.indexOf(b.category);
+    return (aIdx !== -1 ? aIdx : 99) - (bIdx !== -1 ? bIdx : 99);
+  });
 }

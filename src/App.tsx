@@ -1,10 +1,43 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { generateExamQuestions } from './services/gemini';
-import { getQuestions, saveQuestions, clearQuestions, getRandomQuestions, getSolvedQuestions, markQuestionsAsSolved } from './services/db';
-import { Question } from './types';
+import React, { useState, useEffect } from 'react';
+import { 
+  getQuestions, 
+  saveQuestions, 
+  clearQuestions, 
+  getRandomQuestions, 
+  getSolvedQuestions, 
+  markQuestionsAsSolved,
+  getCategoryAndTopicStats,
+  resetSolvedQuestions,
+  deleteQuestionByIndex
+} from './services/db';
+import { getSheetConfig, fetchSheetContent, singleQuestionToTSVLine } from './services/sheetsService';
+import { Question, SheetSyncConfig } from './types';
 import { TOPICS } from './constants';
-import { getTopicDistribution } from './utils';
-import { Loader2, BookOpen, CheckCircle2, XCircle, ChevronRight, RefreshCw, ArrowRight, ArrowLeft, CheckSquare, Play, Settings, Trophy, Home, Database, StopCircle, Download, Upload, Check, ArrowUp, ChevronDown, ChevronUp } from 'lucide-react';
+import QuestionManagementModal from './components/QuestionManagementModal';
+import { 
+  BookOpen, 
+  CheckCircle2, 
+  XCircle, 
+  ChevronRight, 
+  RefreshCw, 
+  ArrowRight, 
+  ArrowLeft, 
+  Play, 
+  Trophy, 
+  Home, 
+  Database, 
+  Check, 
+  ChevronDown, 
+  ChevronUp,
+  FileSpreadsheet,
+  PlusCircle,
+  Copy,
+  Search,
+  Trash2,
+  ExternalLink,
+  Sparkles,
+  Info
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type ViewState = 'dashboard' | 'exam' | 'result' | 'database';
@@ -12,22 +45,23 @@ type ViewState = 'dashboard' | 'exam' | 'result' | 'database';
 export default function App() {
   const [view, setView] = useState<ViewState>('dashboard');
   
-  // DB State
-  const [dbCount, setDbCount] = useState(0);
+  // DB & Questions State
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [solvedQuestions, setSolvedQuestions] = useState<string[]>([]);
-  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
-  const [genStatus, setGenStatus] = useState('');
-  const autoGenRef = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sheetConfig, setSheetConfig] = useState<SheetSyncConfig>(getSheetConfig());
+  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
-  // Setup state
+  // Question Management Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Setup / Exam Config state
   const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
-  const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
-  const [questionCount, setQuestionCount] = useState<number>(30);
+  const [expandedCategories, setExpandedCategories] = useState<string[]>(['Rinoloji']);
+  const [questionCount, setQuestionCount] = useState<number>(20);
   const [includeSolved, setIncludeSolved] = useState<boolean>(false);
   
-  // Exam state
+  // Exam Execution state
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -35,14 +69,45 @@ export default function App() {
   const [timer, setTimer] = useState(0);
   const [isTimerActive, setIsTimerActive] = useState(false);
   const [forceShowExplanation, setForceShowExplanation] = useState(false);
+  const [copiedQuestionId, setCopiedQuestionId] = useState<number | null>(null);
+
+  // Database Search state
+  const [dbSearch, setDbSearch] = useState('');
+  const [dbCategoryFilter, setDbCategoryFilter] = useState('all');
+
+  const refreshAppData = () => {
+    const qList = getQuestions();
+    setAllQuestions(qList);
+    setSolvedQuestions(getSolvedQuestions());
+    setSheetConfig(getSheetConfig());
+  };
 
   useEffect(() => {
-    const q = getQuestions();
-    setDbCount(q.length);
-    setAllQuestions(q);
-    setSolvedQuestions(getSolvedQuestions());
+    refreshAppData();
   }, [view]);
 
+  // Auto-sync from Google Sheets on initial startup if configured
+  useEffect(() => {
+    const config = getSheetConfig();
+    if (config.sheetUrl && config.autoSync) {
+      setIsSyncingSheet(true);
+      fetchSheetContent(config.sheetUrl)
+        .then(({ questions, count }) => {
+          saveQuestions(questions);
+          refreshAppData();
+          setSyncToast(`E-Tablodan ${count} soru senkronize edildi.`);
+          setTimeout(() => setSyncToast(null), 3500);
+        })
+        .catch(err => {
+          console.warn('Initial auto-sync error:', err);
+        })
+        .finally(() => {
+          setIsSyncingSheet(false);
+        });
+    }
+  }, []);
+
+  // Timer interval during exam
   useEffect(() => {
     let interval: any;
     if (isTimerActive) {
@@ -68,9 +133,9 @@ export default function App() {
     let topicNames: string[] | undefined;
 
     if (mode === 'quick') {
-      requestedCount = 30;
+      requestedCount = Math.min(20, allQuestions.length);
     } else if (mode === 'full') {
-      requestedCount = 130;
+      requestedCount = 100;
     } else if (mode === 'custom') {
       requestedCount = questionCount;
       if (selectedTopicIds.length > 0) {
@@ -82,9 +147,9 @@ export default function App() {
     
     if (pool.length === 0) {
       if (!includeSolved) {
-        setError("Seçilen kriterlere uygun YENİ soru bulunamadı. Lütfen 'Çözülmüş soruları dahil et' seçeneğini açın veya yeni soru üretin.");
+        setError("Seçilen konularda ÇÖZÜLMEMİŞ soru kalmadı. 'Çözülmüş soruları tekrar sor' anahtarını açabilir veya yeni soru ekleyebilirsiniz.");
       } else {
-        setError("Seçilen kriterlere uygun soru bulunamadı. Lütfen önce veritabanına soru ekleyin.");
+        setError("Seçilen kriterlere uygun soru bulunamadı. Lütfen 'Soru Bankası & E-Tablo' üzerinden soru ekleyin.");
       }
       return;
     }
@@ -113,6 +178,7 @@ export default function App() {
         .filter((_, i) => answers[i])
         .map(q => q.soru.trim());
       markQuestionsAsSolved(answeredQuestions);
+      refreshAppData();
       setView('result');
     }
   };
@@ -124,212 +190,238 @@ export default function App() {
     }
   };
 
-  const handleDragEnd = (event: any, info: any) => {
-    const swipeThreshold = 50;
-    if (info.offset.x < -swipeThreshold) {
-      nextQuestion();
-    } else if (info.offset.x > swipeThreshold) {
-      prevQuestion();
-    } else if (info.offset.y < -swipeThreshold) {
-      setForceShowExplanation(true);
-    }
-  };
-
   const toggleTopic = (id: number) => {
     setSelectedTopicIds(prev => 
       prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
     );
   };
 
-  const toggleAutoGenerate = async () => {
-    if (autoGenRef.current) {
-      autoGenRef.current = false;
-      setIsAutoGenerating(false);
-      setGenStatus('Üretim durduruldu.');
-      return;
+  const toggleCategorySelect = (category: string) => {
+    const categoryTopicIds = TOPICS.filter(t => t.category === category).map(t => t.id);
+    const allSelected = categoryTopicIds.every(id => selectedTopicIds.includes(id));
+    if (allSelected) {
+      setSelectedTopicIds(prev => prev.filter(id => !categoryTopicIds.includes(id)));
+    } else {
+      setSelectedTopicIds(prev => Array.from(new Set([...prev, ...categoryTopicIds])));
     }
-
-    autoGenRef.current = true;
-    setIsAutoGenerating(true);
-    setGenStatus('Üretim başlıyor...');
-
-    let currentCount = getQuestions().length;
-    while (currentCount < 1040 && autoGenRef.current) {
-      try {
-        const dist = getTopicDistribution(15);
-        const distText = dist.map(d => `${d.count}x ${d.name}`).join(', ');
-        setGenStatus(`Hazırlanıyor (${distText})...`);
-
-        const newQs = await generateExamQuestions(dist);
-        currentCount = saveQuestions(newQs);
-        setDbCount(currentCount);
-        setGenStatus(`Başarıyla eklendi. Toplam: ${currentCount}`);
-        
-        // Wait 5 seconds before next batch to avoid rate limits
-        await new Promise(r => setTimeout(r, 5000));
-      } catch (e: any) {
-        setGenStatus(`Hata: ${e.message}. 10 saniye sonra tekrar denenecek.`);
-        await new Promise(r => setTimeout(r, 10000));
-      }
-    }
-    
-    if (currentCount >= 1040) {
-      setGenStatus('Hedeflenen 1040 soruya ulaşıldı!');
-    }
-    autoGenRef.current = false;
-    setIsAutoGenerating(false);
   };
 
-  const handleClearDb = () => {
-    // In a real app, use a custom modal. For now, just clear it directly or use a state-based confirmation.
-    // To keep it simple, we'll just clear it and update status.
-    clearQuestions();
-    setDbCount(0);
-    setGenStatus('Veritabanı temizlendi.');
+  const toggleExpandedCategory = (category: string) => {
+    setExpandedCategories(prev => 
+      prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]
+    );
   };
 
-  const handleDownload = () => {
-    const data = getQuestions();
-    if (data.length === 0) {
-      setGenStatus("İndirilecek soru bulunamadı.");
-      return;
-    }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'kbb-soru-bankasi.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    setGenStatus('Sorular başarıyla indirildi.');
+  const handleCopySingleQuestion = (q: Question, idx: number) => {
+    const line = singleQuestionToTSVLine(q);
+    navigator.clipboard.writeText(line);
+    setCopiedQuestionId(idx);
+    setTimeout(() => setCopiedQuestionId(null), 2000);
   };
 
-  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  // Live Category Summaries with question counts
+  const categoryStats = getCategoryAndTopicStats(allQuestions, solvedQuestions);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          const newCount = saveQuestions(parsed);
-          setDbCount(newCount);
-          setGenStatus(`${parsed.length} soru başarıyla yüklendi.`);
-        } else {
-          setGenStatus("Hata: Geçersiz dosya formatı.");
-        }
-      } catch (err) {
-        setGenStatus("Hata: Dosya okunurken bir hata oluştu.");
-      }
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  // Filtered Questions for Database View
+  const filteredDbQuestions = allQuestions.filter(q => {
+    const matchesSearch = !dbSearch.trim() || 
+      q.soru.toLowerCase().includes(dbSearch.toLowerCase()) ||
+      (q.topic && q.topic.toLowerCase().includes(dbSearch.toLowerCase())) ||
+      (q.aciklama && q.aciklama.toLowerCase().includes(dbSearch.toLowerCase()));
 
+    const matchesCategory = dbCategoryFilter === 'all' || q.category === dbCategoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  /* ------------------------------------------------------------- */
+  /*                      RENDER: DASHBOARD                        */
+  /* ------------------------------------------------------------- */
   const renderDashboard = () => {
-    const categories = Array.from(new Set(TOPICS.map(t => t.category)));
-
-    const toggleCategory = (category: string) => {
-      const categoryTopicIds = TOPICS.filter(t => t.category === category).map(t => t.id);
-      const allSelected = categoryTopicIds.every(id => selectedTopicIds.includes(id));
-      if (allSelected) {
-        setSelectedTopicIds(prev => prev.filter(id => !categoryTopicIds.includes(id)));
-      } else {
-        setSelectedTopicIds(prev => Array.from(new Set([...prev, ...categoryTopicIds])));
-      }
-    };
-
-    const toggleExpandedCategory = (category: string) => {
-      setExpandedCategories(prev => 
-        prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]
-      );
-    };
+    const totalQuestionsCount = allQuestions.length;
+    const totalSolvedCount = solvedQuestions.length;
+    const overallSuccessRate = totalQuestionsCount > 0 
+      ? Math.min(100, Math.round((totalSolvedCount / totalQuestionsCount) * 100)) 
+      : 0;
 
     return (
-      <div className="max-w-4xl mx-auto h-[100dvh] flex flex-col p-4 gap-4 overflow-hidden">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex items-center justify-between shrink-0">
-          <div>
-            <h1 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-800 to-purple-700 tracking-tight leading-none">
-              HadiÇöz
-            </h1>
-            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mt-1">Medikal Kontrol Paneli</p>
+      <div className="max-w-5xl mx-auto h-[100dvh] flex flex-col p-3 sm:p-4 gap-3 overflow-hidden select-none">
+        
+        {/* Top Header Bar */}
+        <header className="bg-white rounded-2xl shadow-sm border border-slate-200/80 px-4 py-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shadow-md shadow-blue-500/20">
+              KBB
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-800 tracking-tight leading-tight flex items-center gap-2">
+                Board Sınav Hazırlık
+                <span className="hidden sm:inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60">
+                  KBB Yeterlilik
+                </span>
+              </h1>
+              <p className="text-[11px] text-slate-400 font-medium">Google E-Tablo & Kategori Tabanlı Soru Bankası</p>
+            </div>
           </div>
-          <button 
-            onClick={() => setView('database')}
-            className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-sm font-bold transition-colors flex items-center gap-2"
-          >
-            <Database size={16} /> <span className="hidden sm:inline">Soru Bankası</span>
-          </button>
-        </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col md:flex-row gap-4 min-h-0">
+          <div className="flex items-center gap-2">
+            {/* Sheets Status Button / Badge */}
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                sheetConfig.sheetUrl
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+              }`}
+              title="Google E-Tablo senkronizasyonunu yönetin"
+            >
+              <FileSpreadsheet className={`w-3.5 h-3.5 ${sheetConfig.sheetUrl ? 'text-emerald-600' : 'text-slate-500'}`} />
+              <span className="hidden md:inline">
+                {sheetConfig.sheetUrl ? 'E-Tablo Bağlı' : 'E-Tablo Bağla'}
+              </span>
+              {sheetConfig.sheetUrl && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              )}
+            </button>
+
+            {/* Quick Add Question Button */}
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white shadow-sm transition"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Soru Ekle</span>
+            </button>
+
+            {/* Database View Toggle */}
+            <button
+              onClick={() => setView('database')}
+              className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/60 transition flex items-center gap-1.5"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Havuz ({totalQuestionsCount})</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Sync Toast Notification */}
+        {syncToast && (
+          <div className="bg-emerald-600 text-white text-xs font-medium px-4 py-2 rounded-xl flex items-center justify-between shadow-lg animate-fade-in shrink-0">
+            <span className="flex items-center gap-2">
+              <Check className="w-4 h-4" /> {syncToast}
+            </span>
+            <button onClick={() => setSyncToast(null)} className="opacity-80 hover:opacity-100">
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col md:flex-row gap-3 min-h-0">
           
-          {/* Left: Hadi Çözelim (Takes up most space) */}
-          <div className="flex-[2] md:flex-[7] bg-[#1e88e5] rounded-3xl p-4 sm:p-5 text-white flex flex-col shadow-lg overflow-hidden relative min-h-0">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none"></div>
-            
-            <div className="flex justify-between items-end mb-4 shrink-0 relative z-10">
+          {/* Left Column: Hadi Çözelim (Main Topics & Selection) */}
+          <section className="flex-1 md:flex-[7] bg-gradient-to-br from-[#1e88e5] to-[#1565c0] rounded-2xl p-3.5 sm:p-4 text-white flex flex-col shadow-md overflow-hidden relative min-h-0">
+            <div className="flex items-center justify-between pb-2.5 border-b border-white/15 shrink-0">
               <div>
-                <h2 className="text-xl sm:text-2xl font-bold mb-1">Hadi Çözelim</h2>
-                <p className="text-blue-100 text-[10px] sm:text-xs">Konuları seçin ve teste başlayın.</p>
+                <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
+                  <span>Hadi Çözelim</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/20 text-white">
+                    {selectedTopicIds.length > 0 ? `${selectedTopicIds.length} Konu Seçili` : 'Tüm Konular'}
+                  </span>
+                </h2>
+                <p className="text-[11px] text-blue-100">Ana başlığa tıklayıp alt konuları açın ve soruları seçin.</p>
               </div>
+
               <button
                 onClick={() => startExam('quick')}
-                disabled={dbCount < 30}
-                className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-800/50 disabled:text-slate-400 text-white px-3 py-2 sm:px-4 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-md flex items-center gap-1.5 sm:gap-2"
+                disabled={totalQuestionsCount === 0}
+                className="bg-white hover:bg-blue-50 text-blue-700 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
               >
-                <Play size={14} fill="currentColor" /> <span className="hidden sm:inline">Hızlı Sınav</span><span className="sm:hidden">Hızlı</span>
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>Hızlı 20 Soru</span>
               </button>
             </div>
 
-            {/* Topics Accordion */}
-            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2 mb-4 relative z-10">
-              {categories.map(category => {
-                const categoryTopics = TOPICS.filter(t => t.category === category);
-                const allSelected = categoryTopics.every(t => selectedTopicIds.includes(t.id));
-                const isExpanded = expandedCategories.includes(category);
-                
+            {/* Error banner if pool empty */}
+            {error && (
+              <div className="mt-2 p-2.5 rounded-xl bg-rose-500/90 text-white text-xs flex items-center gap-2 shrink-0 animate-shake">
+                <XCircle className="w-4 h-4 shrink-0" />
+                <span className="flex-1">{error}</span>
+                <button onClick={() => setError(null)} className="opacity-80 hover:opacity-100">
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Topics Accordion List */}
+            <div className="flex-1 overflow-y-auto pr-1 my-2.5 space-y-2 custom-scrollbar">
+              {categoryStats.map(cat => {
+                const isExpanded = expandedCategories.includes(cat.category);
+                const categoryTopicIds = TOPICS.filter(t => t.category === cat.category).map(t => t.id);
+                const allSelected = categoryTopicIds.length > 0 && categoryTopicIds.every(id => selectedTopicIds.includes(id));
+                const someSelected = categoryTopicIds.some(id => selectedTopicIds.includes(id));
+
                 return (
-                  <div key={category} className="bg-white/10 rounded-xl overflow-hidden transition-all">
-                    <div className="flex items-center justify-between p-2.5 sm:p-3">
+                  <div 
+                    key={cat.category} 
+                    className="bg-white/10 hover:bg-white/[0.14] border border-white/10 rounded-xl overflow-hidden transition-all"
+                  >
+                    {/* Category Header Row */}
+                    <div className="flex items-center justify-between p-2.5 sm:px-3 sm:py-2">
                       <button
-                        onClick={() => toggleExpandedCategory(category)}
+                        onClick={() => toggleExpandedCategory(cat.category)}
                         className="flex-1 text-left font-bold text-xs sm:text-sm text-white flex items-center gap-2"
                       >
-                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        <span className="truncate">{category}</span>
+                        {isExpanded ? <ChevronUp className="w-4 h-4 text-blue-200" /> : <ChevronDown className="w-4 h-4 text-blue-200" />}
+                        <span className="truncate">{cat.category}</span>
                       </button>
-                      <button
-                        onClick={() => toggleCategory(category)}
-                        className={`w-5 h-5 rounded flex items-center justify-center border transition-colors shrink-0 ml-2 ${allSelected ? 'bg-white border-white' : 'border-white/50 hover:bg-white/20'}`}
-                      >
-                        {allSelected && <Check size={12} className="text-[#1e88e5]" strokeWidth={3} />}
-                      </button>
+
+                      {/* Stats & Select Button */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-black/20 text-blue-100">
+                          {cat.solvedQuestions}/{cat.totalQuestions} Soru
+                        </span>
+
+                        <button
+                          onClick={() => toggleCategorySelect(cat.category)}
+                          className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${
+                            allSelected 
+                              ? 'bg-white border-white text-[#1e88e5]' 
+                              : someSelected 
+                              ? 'bg-white/40 border-white text-white'
+                              : 'border-white/40 hover:bg-white/20'
+                          }`}
+                          title="Tüm alt konuları seç/kaldır"
+                        >
+                          {(allSelected || someSelected) && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                      </div>
                     </div>
-                    
+
+                    {/* Subtopics dropdown */}
                     {isExpanded && (
-                      <div className="flex flex-col gap-1 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
-                        {categoryTopics.map(topic => {
-                          const isSelected = selectedTopicIds.includes(topic.id);
-                          const topicQuestions = allQuestions.filter(q => q.topic === topic.name);
-                          const totalQ = topicQuestions.length;
-                          const solvedQ = topicQuestions.filter(q => solvedQuestions.includes(q.soru.trim())).length;
-                          
+                      <div className="flex flex-col gap-1 px-2 pb-2.5 pt-0.5 border-t border-white/10 bg-black/10">
+                        {cat.topics.map(topic => {
+                          const topicDef = TOPICS.find(t => t.name === topic.name && t.category === cat.category);
+                          const topicId = topicDef ? topicDef.id : -1;
+                          const isSelected = topicId !== -1 && selectedTopicIds.includes(topicId);
+
                           return (
                             <button
-                              key={topic.id}
-                              onClick={() => toggleTopic(topic.id)}
-                              className={`w-full text-left px-2.5 py-2 sm:px-3 sm:py-2 rounded-lg text-[10px] sm:text-xs font-medium transition-all flex items-center justify-between ${
-                                isSelected ? 'bg-white text-[#1e88e5]' : 'bg-white/10 text-blue-50 hover:bg-white/20'
+                              key={topic.name}
+                              onClick={() => {
+                                if (topicId !== -1) toggleTopic(topicId);
+                              }}
+                              className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-between ${
+                                isSelected 
+                                  ? 'bg-white text-blue-900 shadow-sm font-semibold' 
+                                  : 'bg-white/5 text-blue-100 hover:bg-white/15'
                               }`}
                             >
-                              <span className="flex-1 truncate pr-2">{topic.name}</span>
-                              <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-md font-bold ${isSelected ? 'bg-blue-100 text-blue-800' : 'bg-black/20 text-white'}`}>
-                                {solvedQ}/{totalQ}
+                              <span className="truncate pr-2">{topic.name}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                                isSelected ? 'bg-blue-100 text-blue-800' : 'bg-black/20 text-white'
+                              }`}>
+                                {topic.solved}/{topic.total}
                               </span>
                             </button>
                           );
@@ -341,83 +433,156 @@ export default function App() {
               })}
             </div>
 
-            {/* Bottom Controls */}
-            <div className="shrink-0 space-y-2.5 sm:space-y-3 relative z-10">
-              <div className="flex items-center justify-between bg-white/10 rounded-xl p-2 sm:p-3">
-                <span className="text-white text-[10px] sm:text-xs font-medium">Çözülmüş soruları tekrar sor</span>
+            {/* Bottom Controls Bar */}
+            <div className="shrink-0 pt-2 border-t border-white/15 space-y-2">
+              <div className="flex items-center justify-between bg-white/10 rounded-xl px-3 py-2 text-xs">
+                <span className="text-white font-medium flex items-center gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5 text-blue-200" />
+                  Çözülmüş soruları tekrar sor
+                </span>
                 <button
                   onClick={() => setIncludeSolved(!includeSolved)}
-                  className={`w-10 h-5 sm:w-12 sm:h-6 rounded-full transition-colors relative ${includeSolved ? 'bg-green-400' : 'bg-slate-400/50'}`}
+                  className={`w-10 h-5 rounded-full transition-colors relative ${includeSolved ? 'bg-emerald-400' : 'bg-white/20'}`}
                 >
-                  <div className={`w-4 h-4 sm:w-5 sm:h-5 bg-white rounded-full absolute top-0.5 transition-transform ${includeSolved ? 'translate-x-5 sm:translate-x-6' : 'translate-x-0.5'}`}></div>
+                  <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${includeSolved ? 'translate-x-5' : 'translate-x-0.5'}`}></div>
                 </button>
               </div>
-              <div className="flex gap-1.5 sm:gap-2">
-                {[10, 20, 30, 50, 9999].map(num => (
-                  <button
-                    key={num}
-                    onClick={() => setQuestionCount(num)}
-                    className={`flex-1 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all ${
-                      questionCount === num ? 'bg-white text-[#1e88e5] shadow-md' : 'bg-white/20 text-white hover:bg-white/30'
-                    }`}
-                  >
-                    {num === 9999 ? 'Hepsi' : num}
-                  </button>
-                ))}
+
+              {/* Question Count Select */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-blue-100 hidden sm:inline">Soru Sayısı:</span>
+                <div className="flex-1 flex gap-1.5">
+                  {[10, 20, 30, 50, 9999].map(num => (
+                    <button
+                      key={num}
+                      onClick={() => setQuestionCount(num)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition ${
+                        questionCount === num 
+                          ? 'bg-white text-blue-900 shadow-sm' 
+                          : 'bg-white/15 text-white hover:bg-white/25'
+                      }`}
+                    >
+                      {num === 9999 ? 'Tümü' : num}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Start Exam Button */}
               <button 
                 onClick={() => startExam('custom')}
-                disabled={selectedTopicIds.length === 0 || dbCount === 0}
-                className="w-full bg-[#1565c0] hover:bg-[#0d47a1] disabled:bg-blue-400/50 disabled:cursor-not-allowed text-white py-2.5 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                disabled={totalQuestionsCount === 0}
+                className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm transition shadow-lg active:scale-98 flex items-center justify-center gap-2"
               >
-                Soru Çözmeye Başla <ArrowRight size={14} className="sm:w-4 sm:h-4" />
+                <span>Sınavı Başlat ({questionCount === 9999 ? 'Tüm Havuz' : `${questionCount} Soru`})</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          </section>
 
-          {/* Right: Stats */}
-          <div className="flex-1 md:flex-[4] flex flex-col gap-4 min-h-0 shrink-0 md:shrink">
-            <div className="bg-white rounded-3xl p-4 sm:p-6 shadow-sm border border-slate-100 flex-1 flex flex-col justify-center items-center text-center relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-400 to-purple-500"></div>
-              
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-2 sm:mb-4">
-                <Trophy size={24} className="sm:w-7 sm:h-7" />
+          {/* Right Column: Progress & Quick Actions */}
+          <aside className="flex-1 md:flex-[3] flex flex-col gap-3 min-h-0 shrink-0">
+            
+            {/* Progress Card */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">İlerleme Durumu</span>
+                  <Trophy className="w-4 h-4 text-amber-500" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 my-2">
+                  <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-2.5 text-center">
+                    <div className="text-xl font-black text-blue-700">{totalSolvedCount}</div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase">Çözülen</div>
+                  </div>
+                  <div className="bg-purple-50/70 border border-purple-100 rounded-xl p-2.5 text-center">
+                    <div className="text-xl font-black text-purple-700">{totalQuestionsCount}</div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase">Toplam Soru</div>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="space-y-1 mt-2">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-600">
+                    <span>Tamamlanma</span>
+                    <span>%{overallSuccessRate}</span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-700"
+                      style={{ width: `${overallSuccessRate}%` }}
+                    ></div>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-lg sm:text-xl font-bold text-slate-800 mb-0.5 sm:mb-1">Genel İlerleme</h3>
-              <p className="text-slate-500 text-[10px] sm:text-xs mb-4 sm:mb-6">Tüm konulardaki genel başarı durumunuz.</p>
-              
-              <div className="w-full grid grid-cols-2 gap-2 sm:gap-3">
-                <div className="bg-slate-50 rounded-2xl p-3 sm:p-4 border border-slate-100">
-                  <div className="text-2xl sm:text-3xl font-black text-blue-600 mb-0.5 sm:mb-1">{solvedQuestions.length}</div>
-                  <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Çözülen Soru</div>
+
+              {totalSolvedCount > 0 && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('Çözülmüş soru geçmişini sıfırlamak istiyor musunuz?')) {
+                      resetSolvedQuestions();
+                      refreshAppData();
+                    }
+                  }}
+                  className="mt-3 text-[10px] text-slate-400 hover:text-rose-500 text-center transition"
+                >
+                  Çözülenleri Sıfırla
+                </button>
+              )}
+            </div>
+
+            {/* E-Tablo Hub Card */}
+            <div className="bg-slate-900 rounded-2xl p-4 shadow-sm text-slate-100 flex-1 flex flex-col justify-between border border-slate-800">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                  <FileSpreadsheet className="w-4 h-4" />
+                  E-Tablo Entegrasyonu
                 </div>
-                <div className="bg-slate-50 rounded-2xl p-3 sm:p-4 border border-slate-100">
-                  <div className="text-2xl sm:text-3xl font-black text-purple-600 mb-0.5 sm:mb-1">{dbCount}</div>
-                  <div className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider">Toplam Soru</div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Google Sheets linkinizi bağlayarak kaliteli board sorularınızı kolayca ekleyin ve yönetin.
+                </p>
+
+                <div className="pt-2 text-[11px] text-slate-400 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span>Sütun: Kategori, Soru, Şıklar (A-E), Cevap</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                    <span>Tek tıkla içeri çekme ve dışa aktarma</span>
+                  </div>
                 </div>
               </div>
-              
-              {/* Progress Bar */}
-              <div className="w-full mt-4 sm:mt-6">
-                <div className="flex justify-between text-[9px] sm:text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                  <span>İlerleme</span>
-                  <span>{dbCount > 0 ? Math.round((solvedQuestions.length / dbCount) * 100) : 0}%</span>
-                </div>
-                <div className="h-1.5 sm:h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-1000"
-                    style={{ width: `${dbCount > 0 ? (solvedQuestions.length / dbCount) * 100 : 0}%` }}
-                  ></div>
-                </div>
+
+              <div className="pt-4 space-y-2">
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-md shadow-emerald-950/40 flex items-center justify-center gap-2"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  E-Tablo Ayarları & Soru Ekle
+                </button>
               </div>
             </div>
-          </div>
+
+          </aside>
         </div>
+
+        {/* Question Management Modal */}
+        <QuestionManagementModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onQuestionsUpdated={refreshAppData}
+          currentCount={allQuestions.length}
+        />
       </div>
     );
   };
 
-
+  /* ------------------------------------------------------------- */
+  /*                        RENDER: EXAM                           */
+  /* ------------------------------------------------------------- */
   const renderExam = () => {
     const question = questions[currentIndex];
     if (!question) return null;
@@ -427,191 +592,155 @@ export default function App() {
     const isCorrect = selectedAnswer === question.dogruCevap;
 
     return (
-      <div className="max-w-2xl mx-auto flex flex-col h-[100dvh] justify-start px-3 pb-3 pt-8 sm:px-4 sm:pb-4 sm:pt-12">
-        <div className="flex flex-col w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 max-h-[75dvh]">
-          {/* Header */}
-          <div className="bg-slate-50/50 px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+      <div className="max-w-3xl mx-auto flex flex-col h-[100dvh] justify-start p-3 sm:p-4 select-none">
+        <div className="flex flex-col w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200/80 max-h-[92dvh]">
+          
+          {/* Exam Header */}
+          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200/80 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => setView('dashboard')}
-                className="p-1.5 rounded-full bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 transition-colors"
+                className="p-1.5 rounded-xl bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 transition"
+                title="Ana Sayfaya Dön"
               >
-                <ArrowLeft size={18} />
+                <ArrowLeft className="w-4 h-4" />
               </button>
               <div>
-                <h1 className="text-base font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-800 to-purple-700 leading-none mb-0.5">HadiÇöz</h1>
-                <p className="text-[10px] text-slate-500 font-medium">Soru {currentIndex + 1} / {questions.length}</p>
+                <span className="text-xs font-bold text-blue-700">
+                  {question.category || 'KBB Sınavı'}
+                </span>
+                <span className="text-slate-400 mx-1.5">•</span>
+                <span className="text-[11px] text-slate-500 font-medium">{question.topic || 'Genel'}</span>
               </div>
             </div>
-            <div className="text-xs font-bold text-slate-600 bg-white px-2.5 py-1 rounded-lg shadow-sm border border-slate-200">
-              {formatTime(timer)}
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-sm">
+                Soru {currentIndex + 1} / {questions.length}
+              </span>
+              <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
+                {formatTime(timer)}
+              </span>
             </div>
           </div>
 
-          {/* Question & Options */}
-          <motion.div 
-            key={currentIndex}
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.1}
-            onDragEnd={handleDragEnd}
-            onPanEnd={(e, info) => {
-              if (info.offset.y < -50 && Math.abs(info.offset.x) < 50) {
-                setForceShowExplanation(true);
-              }
-            }}
-            className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col custom-scrollbar"
-          >
-            <div className="text-sm sm:text-base text-slate-800 font-medium leading-snug mb-5">
+          {/* Exam Question Body */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+            {/* Question Text */}
+            <div className="text-sm sm:text-base font-semibold text-slate-800 leading-relaxed bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
               {question.soru}
             </div>
-            
-            <div className="flex flex-col gap-2 mt-auto">
-              {Object.entries(question.secenekler).map(([key, value]) => {
-                const isThisSelected = selectedAnswer === key;
-                const isThisCorrect = question.dogruCevap === key;
-                
-                let buttonClass = "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-blue-50 hover:border-blue-300";
-                
+
+            {/* Options List A - E */}
+            <div className="space-y-2.5">
+              {(['A', 'B', 'C', 'D', 'E'] as const).map((opt) => {
+                const optText = question.secenekler[opt];
+                if (!optText) return null;
+
+                let optClass = 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700';
+
                 if (showResult) {
-                  if (isThisCorrect) {
-                    buttonClass = "bg-emerald-500 border-emerald-600 text-white shadow-sm";
-                  } else if (isThisSelected && !isThisCorrect) {
-                    buttonClass = "bg-red-500 border-red-600 text-white shadow-sm";
+                  if (opt === question.dogruCevap) {
+                    optClass = 'bg-emerald-50 border-emerald-500 text-emerald-900 font-semibold ring-1 ring-emerald-500';
+                  } else if (selectedAnswer === opt) {
+                    optClass = 'bg-rose-50 border-rose-500 text-rose-900 font-semibold ring-1 ring-rose-500';
                   } else {
-                    buttonClass = "bg-slate-50 border-slate-200 text-slate-400 opacity-50";
+                    optClass = 'bg-slate-50/50 border-slate-200 text-slate-400 opacity-60';
                   }
-                } else if (isThisSelected) {
-                   buttonClass = "bg-blue-600 border-blue-700 text-white shadow-sm";
                 }
 
                 return (
                   <button
-                    key={key}
-                    onClick={() => handleAnswer(key)}
+                    key={opt}
+                    onClick={() => handleAnswer(opt)}
                     disabled={showResult}
-                    className={`w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200 flex items-center gap-3 ${buttonClass}`}
+                    className={`w-full p-3 sm:p-3.5 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-start gap-3 ${optClass}`}
                   >
-                    <span className="font-bold text-xs sm:text-sm w-4">{key})</span>
-                    <span className="flex-1 font-medium text-xs sm:text-sm leading-tight">{value}</span>
+                    <span className={`w-6 h-6 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 ${
+                      showResult && opt === question.dogruCevap
+                        ? 'bg-emerald-600 text-white'
+                        : showResult && selectedAnswer === opt
+                        ? 'bg-rose-600 text-white'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {opt}
+                    </span>
+                    <span className="flex-1 pt-0.5">{optText}</span>
                   </button>
                 );
               })}
             </div>
 
-            <AnimatePresence>
-              {(showResult || forceShowExplanation) && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                  animate={{ opacity: 1, height: 'auto', marginTop: 16 }}
-                  className="overflow-hidden"
-                >
-                  <div className="bg-emerald-50 rounded-xl p-3.5 border border-emerald-100">
-                    <h3 className="font-bold text-emerald-800 mb-1.5 text-xs flex items-center gap-1.5">
-                      <BookOpen size={14} />
-                      Açıklama
-                    </h3>
-                    <p className="text-emerald-900 text-xs leading-relaxed">{question.aciklama}</p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
+            {/* Explanation Section */}
+            {(showResult || forceShowExplanation) && (
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs sm:text-sm text-slate-800 space-y-2 animate-fade-in">
+                <div className="font-bold text-amber-900 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    Doğru Cevap: {question.dogruCevap}
+                  </span>
+                  
+                  {/* Copy Question to Sheet Row */}
+                  <button
+                    onClick={() => handleCopySingleQuestion(question, currentIndex)}
+                    className="text-[11px] font-medium text-slate-500 hover:text-slate-800 flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-xs"
+                    title="Bu soruyu E-Tablo satırı olarak panoya kopyala"
+                  >
+                    {copiedQuestionId === currentIndex ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-emerald-700">Satır Kopyalandı</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        E-Tablo Satırı Kopyala
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-slate-700 leading-relaxed text-xs">
+                  {question.aciklama || 'Bu soru için henüz ek bir klinik açıklama girilmedi.'}
+                </p>
+              </div>
+            )}
+          </div>
 
-          {/* Bottom Bar */}
-          <div className="bg-white p-3 border-t border-slate-100 flex items-center gap-2 flex-shrink-0">
-            <button 
+          {/* Exam Footer Navigation */}
+          <div className="bg-slate-50 px-4 py-3 border-t border-slate-200 flex items-center justify-between shrink-0">
+            <button
               onClick={prevQuestion}
               disabled={currentIndex === 0}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-semibold text-xs transition-colors disabled:opacity-40"
+              className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 transition flex items-center gap-1.5"
             >
-              Önceki
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Önceki</span>
             </button>
-            <button 
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl font-semibold text-xs transition-colors"
+
+            <button
               onClick={() => setForceShowExplanation(!forceShowExplanation)}
+              className="text-xs text-slate-500 hover:text-blue-700 font-medium transition"
             >
-              Açıklama
+              {forceShowExplanation ? 'Açıklamayı Gizle' : 'Çözümü Gör'}
             </button>
-            <button 
+
+            <button
               onClick={nextQuestion}
-              className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              className="px-5 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition flex items-center gap-1.5 active:scale-95"
             >
-              <span>{currentIndex === questions.length - 1 ? 'Bitir' : 'Sonraki'}</span>
-              <ArrowRight size={14} />
+              <span>{currentIndex < questions.length - 1 ? 'Sonraki' : 'Sınavı Bitir'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+
         </div>
       </div>
     );
   };
 
-  const renderDatabase = () => {
-    return (
-      <div className="max-w-4xl mx-auto bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-3xl font-extrabold text-slate-800">Veritabanı Yönetimi</h2>
-          <button onClick={() => setView('dashboard')} className="text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-2">
-            <ArrowLeft size={20} /> Ana Sayfaya Dön
-          </button>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <div className="bg-blue-50 border-2 border-blue-100 rounded-2xl p-6">
-            <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2"><Database size={20} /> Durum</h3>
-            <p className="text-blue-600 mb-4">Mevcut Soru Sayısı: <strong className="text-2xl">{dbCount}</strong> / 1040</p>
-            <div className="h-3 bg-blue-200 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${(dbCount / 1040) * 100}%` }}></div>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 border-2 border-purple-100 rounded-2xl p-6">
-            <h3 className="font-bold text-purple-800 mb-2 flex items-center gap-2"><RefreshCw size={20} className={isAutoGenerating ? "animate-spin" : ""} /> Otomatik Üretim</h3>
-            <p className="text-purple-600 text-sm mb-4 h-10">{genStatus || "Yapay zeka ile otomatik soru üretimi başlatın."}</p>
-            <button 
-              onClick={toggleAutoGenerate}
-              className={`w-full py-3 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2 ${isAutoGenerating ? 'bg-red-500 hover:bg-red-600' : 'bg-purple-600 hover:bg-purple-700'}`}
-            >
-              {isAutoGenerating ? <><StopCircle size={20} /> Üretimi Durdur</> : <><Play size={20} /> Üretimi Başlat</>}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="border-2 border-slate-100 rounded-2xl p-6">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Download size={20} /> Dışa Aktar</h3>
-            <p className="text-slate-500 text-sm mb-4">Mevcut soruları JSON formatında bilgisayarınıza indirin.</p>
-            <button onClick={handleDownload} className="w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold transition-all">
-              Soruları İndir
-            </button>
-          </div>
-
-          <div className="border-2 border-slate-100 rounded-2xl p-6">
-            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Upload size={20} /> İçe Aktar</h3>
-            <p className="text-slate-500 text-sm mb-4">Daha önce indirdiğiniz JSON dosyasını yükleyin.</p>
-            <input 
-              type="file" 
-              accept=".json" 
-              ref={fileInputRef}
-              onChange={handleUpload}
-              className="hidden"
-              id="file-upload"
-            />
-            <label htmlFor="file-upload" className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 py-3 rounded-xl font-bold transition-all cursor-pointer flex justify-center items-center">
-              Dosya Seç ve Yükle
-            </label>
-          </div>
-        </div>
-
-        <div className="mt-8 pt-8 border-t border-slate-100">
-          <button onClick={handleClearDb} className="text-red-500 hover:text-red-700 font-bold text-sm flex items-center gap-2 transition-colors">
-            <XCircle size={16} /> Tüm Veritabanını Temizle (Tehlikeli)
-          </button>
-        </div>
-      </div>
-    );
-  };
-
+  /* ------------------------------------------------------------- */
+  /*                      RENDER: RESULT                           */
+  /* ------------------------------------------------------------- */
   const renderResult = () => {
     let correct = 0;
     let incorrect = 0;
@@ -624,58 +753,57 @@ export default function App() {
       else incorrect++;
     });
 
-    const score = Math.round((correct / questions.length) * 100);
+    const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
 
     return (
-      <div className="max-w-2xl mx-auto bg-white rounded-[2rem] p-8 sm:p-12 text-center relative overflow-hidden shadow-xl border border-slate-100">
-        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-[#007bff] to-[#6f42c1]"></div>
-        <div className="w-20 h-20 bg-blue-50 text-[#007bff] rounded-full flex items-center justify-center mx-auto mb-8">
-          <Trophy size={40} />
+      <div className="max-w-2xl mx-auto bg-white rounded-3xl p-6 sm:p-8 text-center relative overflow-hidden shadow-xl border border-slate-200">
+        <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <Trophy className="w-8 h-8" />
         </div>
-        <h2 className="text-3xl font-extrabold text-slate-800 mb-2">Sınav Tamamlandı</h2>
-        <p className="text-slate-500 font-medium mb-8 text-lg">Performans özetiniz aşağıdadır.</p>
+        <h2 className="text-2xl font-black text-slate-800 mb-1">Sınav Tamamlandı</h2>
+        <p className="text-slate-500 font-medium mb-6 text-xs sm:text-sm">Board çalışma oturumu performans özetiniz.</p>
 
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-emerald-50 border-2 border-emerald-100 rounded-2xl p-4">
-            <div className="text-3xl font-black text-emerald-600 mb-1">{correct}</div>
-            <div className="text-xs font-bold text-emerald-800 uppercase tracking-wider">Doğru</div>
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3">
+            <div className="text-2xl sm:text-3xl font-black text-emerald-600">{correct}</div>
+            <div className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Doğru</div>
           </div>
-          <div className="bg-red-50 border-2 border-red-100 rounded-2xl p-4">
-            <div className="text-3xl font-black text-red-600 mb-1">{incorrect}</div>
-            <div className="text-xs font-bold text-red-800 uppercase tracking-wider">Yanlış</div>
+          <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3">
+            <div className="text-2xl sm:text-3xl font-black text-rose-600">{incorrect}</div>
+            <div className="text-[10px] font-bold text-rose-800 uppercase tracking-wider">Yanlış</div>
           </div>
-          <div className="bg-slate-50 border-2 border-slate-200 rounded-2xl p-4">
-            <div className="text-3xl font-black text-slate-600 mb-1">{empty}</div>
-            <div className="text-xs font-bold text-slate-800 uppercase tracking-wider">Boş</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="bg-slate-900 rounded-2xl p-6 text-white text-left">
-            <div className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-2">Başarı Oranı</div>
-            <div className="text-4xl font-black">%{score}</div>
-          </div>
-          <div className="bg-orange-50 border-2 border-orange-100 rounded-2xl p-6 text-left">
-            <div className="text-xs text-orange-500 uppercase tracking-widest font-bold mb-2">Toplam Süre</div>
-            <div className="text-3xl font-black text-orange-700 font-mono">{formatTime(timer)}</div>
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3">
+            <div className="text-2xl sm:text-3xl font-black text-slate-600">{empty}</div>
+            <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">Boş</div>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="bg-slate-900 rounded-2xl p-4 text-white text-left">
+            <div className="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1">Başarı Oranı</div>
+            <div className="text-3xl font-black text-emerald-400">%{score}</div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-left">
+            <div className="text-[10px] text-blue-700 uppercase tracking-widest font-bold mb-1">Toplam Süre</div>
+            <div className="text-2xl font-black text-blue-900 font-mono">{formatTime(timer)}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={() => {
               setCurrentIndex(0);
               setView('exam');
             }}
-            className="px-8 py-4 rounded-full text-base font-bold border-2 border-slate-200 text-slate-700 hover:bg-slate-50 transition-all"
+            className="px-6 py-2.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-50 transition"
           >
-            Soruları İncele
+            Soruları ve Çözümleri İncele
           </button>
           <button
             onClick={() => setView('dashboard')}
-            className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#007bff] to-[#6f42c1] hover:from-blue-600 hover:to-purple-600 text-white px-8 py-4 rounded-full text-base font-bold transition-all shadow-lg active:scale-95"
+            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition shadow-md"
           >
-            <Home size={20} />
+            <Home className="w-4 h-4" />
             Ana Sayfaya Dön
           </button>
         </div>
@@ -683,16 +811,168 @@ export default function App() {
     );
   };
 
+  /* ------------------------------------------------------------- */
+  /*                     RENDER: DATABASE                          */
+  /* ------------------------------------------------------------- */
+  const renderDatabase = () => {
+    const existingCats = Array.from(new Set(allQuestions.map(q => q.category || 'Genel KBB')));
+
+    return (
+      <div className="max-w-5xl mx-auto h-[100dvh] flex flex-col p-3 sm:p-4 gap-3 overflow-hidden select-none">
+        {/* Database Header */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setView('dashboard')}
+              className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
+              title="Geri Dön"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold text-slate-800 flex items-center gap-2">
+                Soru Bankası Havuzu
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                  {allQuestions.length} Soru
+                </span>
+              </h2>
+              <p className="text-[11px] text-slate-400">Tüm sorularınızı filtreleyin, arayın veya E-Tabloya aktarın.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>E-Tablo & Soru Ekle</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filter & Search Bar */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-3 flex flex-col sm:flex-row gap-2 shrink-0">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Sorularda, konularda veya açıklamalarda ara..."
+              value={dbSearch}
+              onChange={(e) => setDbSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <select
+            value={dbCategoryFilter}
+            onChange={(e) => setDbCategoryFilter(e.target.value)}
+            className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+          >
+            <option value="all">Tüm Kategoriler ({allQuestions.length})</option>
+            {existingCats.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Question Cards List */}
+        <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 custom-scrollbar">
+          {filteredDbQuestions.length === 0 ? (
+            <div className="bg-white rounded-2xl p-8 text-center text-slate-400 border border-slate-200">
+              <Database className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+              <p className="text-sm font-semibold text-slate-600">Eşleşen soru bulunamadı.</p>
+              <p className="text-xs text-slate-400 mt-1">Arama filtrenizi değiştirebilir veya E-Tablo üzerinden yeni sorular ekleyebilirsiniz.</p>
+            </div>
+          ) : (
+            filteredDbQuestions.map((q, idx) => (
+              <div 
+                key={idx}
+                className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs hover:border-blue-300 transition space-y-2.5"
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                      {q.category || 'Genel KBB'}
+                    </span>
+                    <span className="text-slate-500 font-medium">{q.topic || 'Genel'}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopySingleQuestion(q, idx)}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition"
+                      title="E-Tablo satırı olarak kopyala"
+                    >
+                      {copiedQuestionId === idx ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('Bu soruyu silmek istediğinize emin misiniz?')) {
+                          deleteQuestionByIndex(idx);
+                          refreshAppData();
+                        }
+                      }}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                      title="Soruyu sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-xs sm:text-sm font-semibold text-slate-800 leading-snug">
+                  {q.soru}
+                </div>
+
+                {/* Compact Options Preview */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 text-xs">
+                  {(['A', 'B', 'C', 'D', 'E'] as const).map(opt => (
+                    <div 
+                      key={opt}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] truncate flex items-center gap-1.5 ${
+                        opt === q.dogruCevap 
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold' 
+                          : 'bg-slate-50 border-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <span className="font-bold">{opt}:</span>
+                      <span className="truncate">{q.secenekler[opt]}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {q.aciklama && (
+                  <div className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 leading-relaxed">
+                    <strong className="text-slate-600">Açıklama:</strong> {q.aciklama}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Modal */}
+        <QuestionManagementModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onQuestionsUpdated={refreshAppData}
+          currentCount={allQuestions.length}
+        />
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-[#eef2f6] text-slate-900 font-sans selection:bg-blue-200">
-      <main className="px-4 py-8">
+    <div className="min-h-screen bg-[#edf2f7] text-slate-900 font-sans">
+      <main className="w-full">
         <AnimatePresence mode="wait">
           <motion.div
             key={view}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15 }}
           >
             {view === 'dashboard' && renderDashboard()}
             {view === 'database' && renderDatabase()}

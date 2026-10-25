@@ -1,5 +1,5 @@
 {
-  "name": "KBB Soru Üreteci",
-  "description": "Kulak Burun Boğaz konularında 5 seçenekli çoktan seçmeli sorular üreten ve çözen uygulama.",
+  "name": "KBB Board Sınav Hazırlık & E-Tablo Soru Bankası",
+  "description": "Kulak Burun Boğaz Board ve Yeterlilik sınavı için Google E-Tablo entegrasyonlu, kategori bazlı soru bankası ve sınav modülü.",
   "requestFramePermissions": []
 }

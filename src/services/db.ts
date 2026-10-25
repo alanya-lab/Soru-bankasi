@@ -3,6 +3,7 @@ import { TOPICS } from '../constants';
 
 const DB_KEY = 'kbb_question_bank';
 const SOLVED_KEY = 'kbb_solved_questions';
+const SYNCED_SHEET_KEY = 'kbb_sheet_synced_signatures';
 
 const SEED_QUESTIONS: Question[] = [
   {
@@ -211,12 +212,45 @@ export function markQuestionsAsSolved(questions: string[]) {
   localStorage.setItem(SOLVED_KEY, JSON.stringify(Array.from(existing)));
 }
 
+export function getSyncedSignatures(): Set<string> {
+  try {
+    const data = localStorage.getItem(SYNCED_SHEET_KEY);
+    return new Set(data ? JSON.parse(data) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function markQuestionsAsSynced(questions: Question[]) {
+  try {
+    const existing = getSyncedSignatures();
+    questions.forEach(q => existing.add(q.soru.trim().toLowerCase()));
+    localStorage.setItem(SYNCED_SHEET_KEY, JSON.stringify(Array.from(existing)));
+  } catch (e) {
+    console.error('Failed to save synced signatures', e);
+  }
+}
+
+export function getUnsyncedQuestions(): Question[] {
+  const all = getQuestions();
+  const synced = getSyncedSignatures();
+  return all.filter(q => !synced.has(q.soru.trim().toLowerCase()));
+}
+
+export function resetSyncedSignatures() {
+  localStorage.removeItem(SYNCED_SHEET_KEY);
+}
+
 export function saveQuestions(newQuestions: Question[]): number {
   const existing = getQuestions();
   const normalizedNew = newQuestions.map(normalizeQuestion);
-  const existingTexts = new Set(existing.map(q => q.soru.trim()));
-  const uniqueNew = normalizedNew.filter(q => !existingTexts.has(q.soru.trim()));
-  const updated = [...existing, ...uniqueNew];
+  
+  // Map by trimmed question text to allow updating existing questions with latest corrected options
+  const questionMap = new Map<string, Question>();
+  existing.forEach(q => questionMap.set(q.soru.trim(), q));
+  normalizedNew.forEach(q => questionMap.set(q.soru.trim(), q));
+  
+  const updated = Array.from(questionMap.values());
   localStorage.setItem(DB_KEY, JSON.stringify(updated));
   return updated.length;
 }

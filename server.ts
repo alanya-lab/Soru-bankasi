@@ -75,10 +75,23 @@ async function startServer() {
       });
 
       const responseText = await response.text();
-      return res.json({ ok: response.ok, response: responseText });
+      let parsedData: any = null;
+      try {
+        parsedData = JSON.parse(responseText);
+      } catch {
+        // Text response
+      }
+
+      const isSuccess = response.ok && (!parsedData || parsedData.ok !== false);
+      return res.json({ 
+        ok: isSuccess, 
+        data: parsedData, 
+        response: responseText,
+        error: isSuccess ? undefined : (parsedData?.error || 'Google Apps Script isteği başarısız oldu.')
+      });
     } catch (error: any) {
       console.error('Webhook append error:', error);
-      return res.status(500).json({ ok: false, error: error.message });
+      return res.status(500).json({ ok: false, error: error.message || 'Webhook sunucusuna ulaşılamadı.' });
     }
   });
 

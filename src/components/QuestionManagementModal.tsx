@@ -7,7 +7,9 @@ import {
   fetchSheetContent, 
   exportQuestionsToTSV, 
   singleQuestionToTSVLine, 
-  getTemplateTSV 
+  getTemplateTSV,
+  appendQuestionsToGoogleSheet,
+  getAppsScriptCodeSnippet
 } from '../services/sheetsService';
 import { 
   addSingleQuestion, 
@@ -16,7 +18,9 @@ import {
   clearQuestions,
   getQuestions,
   resolveCategoryForTopic,
-  normalizeQuestion 
+  normalizeQuestion,
+  getUnsyncedQuestions,
+  markQuestionsAsSynced
 } from '../services/db';
 import { 
   X, 
@@ -31,7 +35,13 @@ import {
   Trash2, 
   Database,
   ArrowRight,
-  Info
+  Info,
+  Send,
+  UploadCloud,
+  ChevronDown,
+  ChevronUp,
+  Code,
+  CheckCircle2
 } from 'lucide-react';
 
 interface Props {
@@ -48,11 +58,16 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
 
   // Sheet Sync State
   const [sheetUrl, setSheetUrl] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [autoSync, setAutoSync] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | undefined>();
+  const [lastAppendTime, setLastAppendTime] = useState<string | undefined>();
   const [syncMode, setSyncMode] = useState<'merge' | 'replace'>('merge');
   const [isLoading, setIsLoading] = useState(false);
+  const [isAppending, setIsAppending] = useState(false);
   const [sheetMessage, setSheetMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [unsyncedCount, setUnsyncedCount] = useState(0);
+  const [showScriptHelper, setShowScriptHelper] = useState(false);
 
   // Manual Form State
   const [formCategory, setFormCategory] = useState('Rinoloji');
@@ -67,21 +82,32 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
   const [formOptE, setFormOptE] = useState('');
   const [formDogruCevap, setFormDogruCevap] = useState<'A' | 'B' | 'C' | 'D' | 'E'>('A');
   const [formAciklama, setFormAciklama] = useState('');
+  const [autoAppendOnAdd, setAutoAppendOnAdd] = useState(false);
   const [manualMessage, setManualMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // JSON Batch State
   const [jsonText, setJsonText] = useState('');
   const [jsonMessage, setJsonMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [jsonSyncMode, setJsonSyncMode] = useState<'merge' | 'replace'>('merge');
 
   // Copy Feedback State
   const [copiedType, setCopiedType] = useState<string | null>(null);
+
+  const refreshUnsynced = () => {
+    const unsynced = getUnsyncedQuestions();
+    setUnsyncedCount(unsynced.length);
+  };
 
   useEffect(() => {
     if (isOpen) {
       const config = getSheetConfig();
       setSheetUrl(config.sheetUrl || '');
+      setWebhookUrl(config.webhookUrl || '');
       setAutoSync(config.autoSync || false);
       setLastSyncTime(config.lastSyncTime);
+      setLastAppendTime(config.lastAppendTime);
+      setAutoAppendOnAdd(Boolean(config.webhookUrl));
+      refreshUnsynced();
       setSheetMessage(null);
       setManualMessage(null);
       setJsonMessage(null);
@@ -98,6 +124,15 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
     navigator.clipboard.writeText(text);
     setCopiedType(type);
     setTimeout(() => setCopiedType(null), 2500);
+  };
+
+  const handleSaveWebhookUrl = (url: string) => {
+    setWebhookUrl(url);
+    const config = getSheetConfig();
+    saveSheetConfig({ ...config, webhookUrl: url.trim() });
+    if (url.trim()) {
+      setAutoAppendOnAdd(true);
+    }
   };
 
   const handleSheetSync = async () => {
@@ -123,11 +158,13 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
       setLastSyncTime(now);
       saveSheetConfig({
         sheetUrl: sheetUrl.trim(),
+        webhookUrl: webhookUrl.trim(),
         autoSync,
         lastSyncTime: now,
         importedCount: count,
       });
 
+      refreshUnsynced();
       setSheetMessage({
         type: 'success',
         text: `Senkronizasyon başarılı! E-Tablodan ${count} soru çekildi. Toplam soru havuzu: ${updatedTotal}`,
@@ -141,6 +178,109 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleAppendNewQuestions = async () => {
+    const unsynced = getUnsyncedQuestions();
+    if (unsynced.length === 0) {
+      setSheetMessage({ type: 'info', text: 'E-Tabloya aktarılacak yeni soru bulunmuyor. Tüm sorular senkronize.' });
+      return;
+    }
+
+    if (!webhookUrl.trim()) {
+      setSheetMessage({ 
+        type: 'error', 
+        text: 'Doğrudan göndermek için lütfen aşağıdaki Google Apps Script Webhook URL alanını doldurun veya "Yalnızca Yeni Soruları Kopyala (TSV)" seçeneğini kullanın.' 
+      });
+      return;
+    }
+
+    setIsAppending(true);
+    setSheetMessage(null);
+
+    try {
+      const res = await appendQuestionsToGoogleSheet(webhookUrl.trim(), unsynced);
+      const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      setLastAppendTime(now);
+      refreshUnsynced();
+      setSheetMessage({
+        type: 'success',
+        text: res.message,
+      });
+      onQuestionsUpdated();
+    } catch (err: any) {
+      setSheetMessage({
+        type: 'error',
+        text: err.message || 'E-Tabloya satır eklenirken bir sorun oluştu.',
+      });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
+  const handleAppendAllQuestions = async () => {
+    const all = getQuestions();
+    if (all.length === 0) {
+      setSheetMessage({ type: 'info', text: 'Soru havuzu boş.' });
+      return;
+    }
+
+    if (!webhookUrl.trim()) {
+      setSheetMessage({ 
+        type: 'error', 
+        text: 'Lütfen önce Google Apps Script Webhook URL adresinizi girin.' 
+      });
+      return;
+    }
+
+    if (!window.confirm(`Tüm soru havuzundaki ${all.length} soruyu Google E-Tablonuzun devamına eklemek istediğinize emin misiniz?`)) {
+      return;
+    }
+
+    setIsAppending(true);
+    setSheetMessage(null);
+
+    try {
+      const res = await appendQuestionsToGoogleSheet(webhookUrl.trim(), all);
+      const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      setLastAppendTime(now);
+      refreshUnsynced();
+      setSheetMessage({
+        type: 'success',
+        text: `Tüm havuz (${all.length} soru) Google E-Tablonuzun devamına başarıyla aktarıldı!`,
+      });
+      onQuestionsUpdated();
+    } catch (err: any) {
+      setSheetMessage({
+        type: 'error',
+        text: err.message || 'E-Tabloya aktarım hatası.',
+      });
+    } finally {
+      setIsAppending(false);
+    }
+  };
+
+  const handleCopyNewOnlyTSV = () => {
+    const unsynced = getUnsyncedQuestions();
+    if (unsynced.length === 0) {
+      setSheetMessage({ type: 'info', text: 'E-Tabloya eklenecek yeni soru tespit edilmedi (Tüm sorular senkronize).' });
+      return;
+    }
+    const tsvData = exportQuestionsToTSV(unsynced, false); // No header row
+    handleCopy(tsvData, 'newOnlyTsv');
+    setSheetMessage({
+      type: 'success',
+      text: `${unsynced.length} yeni soru TSV formatında kopyalandı! Google E-Tablonuzdaki en son dolu satırın altındaki boş satıra tıklayıp Ctrl+V (Yapıştır) yapın.`,
+    });
+  };
+
+  const handleMarkAllAsSyncedAction = () => {
+    markQuestionsAsSynced(getQuestions());
+    refreshUnsynced();
+    setSheetMessage({
+      type: 'success',
+      text: 'Mevcut tüm sorular E-Tablo ile eşitlenmiş (senkronize) olarak işaretlendi.',
+    });
   };
 
   const handleSaveAutoSyncToggle = (enabled: boolean) => {
@@ -179,8 +319,32 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
     };
 
     const newTotal = addSingleQuestion(newQuestion);
-    setManualMessage({ type: 'success', text: `Soru başarıyla eklendi! Toplam soru: ${newTotal}` });
+    refreshUnsynced();
     onQuestionsUpdated();
+
+    // If auto-append is enabled and webhook is available, push directly to Google Sheets!
+    if (autoAppendOnAdd && webhookUrl.trim()) {
+      setManualMessage({ type: 'success', text: `Soru havuza eklendi, Google E-Tabloya iletiliyor...` });
+      appendQuestionsToGoogleSheet(webhookUrl.trim(), [newQuestion])
+        .then(() => {
+          refreshUnsynced();
+          setManualMessage({ 
+            type: 'success', 
+            text: `Soru hem soru havuzuna kaydedildi hem de Google E-Tablonuzun sonuna eklendi! (Toplam Soru: ${newTotal})` 
+          });
+        })
+        .catch((err) => {
+          setManualMessage({ 
+            type: 'error', 
+            text: `Soru havuza kaydedildi fakat E-Tabloya gönderilemedi: ${err.message}` 
+          });
+        });
+    } else {
+      setManualMessage({ 
+        type: 'success', 
+        text: `Soru başarıyla eklendi! Toplam soru: ${newTotal}. (E-Tabloya satır olarak göndermek için E-Tablolar sekmesini açabilirsiniz).` 
+      });
+    }
 
     // Reset question inputs, keep category/topic for faster sequential entry
     setFormSoru('');
@@ -265,9 +429,19 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
         return;
       }
 
-      const total = saveQuestions(validQuestions);
-      setJsonMessage({ type: 'success', text: `${validQuestions.length} soru başarıyla içe aktarıldı! Toplam soru: ${total}` });
+      let total = 0;
+      if (jsonSyncMode === 'replace') {
+        total = replaceQuestions(validQuestions);
+      } else {
+        total = saveQuestions(validQuestions);
+      }
+
+      setJsonMessage({ 
+        type: 'success', 
+        text: `${validQuestions.length} soru başarıyla ${jsonSyncMode === 'replace' ? 'yüklendi (öncekiler sıfırlandı)' : 'eklendi/güncellendi'}! Toplam soru havuzu: ${total}` 
+      });
       setJsonText('');
+      refreshUnsynced();
       onQuestionsUpdated();
     } catch (e: any) {
       setJsonMessage({ type: 'error', text: `JSON ayrıştırma hatası: ${e.message}` });
@@ -382,15 +556,15 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
           {activeTab === 'sheet' && (
             <div className="space-y-6">
               {/* Status Banner */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
                   <div>
-                    <div className="text-xs text-slate-400">Bağlantı Durumu</div>
-                    <div className="text-sm font-semibold text-slate-200 flex items-center gap-1.5 mt-0.5">
+                    <div className="text-[11px] text-slate-400">E-Tablo Okuma</div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-1.5 mt-0.5">
                       {sheetUrl ? (
                         <>
                           <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                          E-Tablo Tanımlı
+                          Tanımlı
                         </>
                       ) : (
                         <>
@@ -400,35 +574,68 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                       )}
                     </div>
                   </div>
-                  <FileSpreadsheet className="w-6 h-6 text-slate-500" />
+                  <FileSpreadsheet className="w-5 h-5 text-slate-500" />
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
                   <div>
-                    <div className="text-xs text-slate-400">Son Senkronizasyon</div>
-                    <div className="text-sm font-semibold text-slate-200 mt-0.5">
-                      {lastSyncTime ? `${lastSyncTime}` : 'Henüz yapılmadı'}
+                    <div className="text-[11px] text-slate-400">E-Tabloya Yazma</div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-1.5 mt-0.5">
+                      {webhookUrl ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                          Webhook Aktif
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                          Manuel / TSV
+                        </>
+                      )}
                     </div>
                   </div>
-                  <RefreshCw className="w-6 h-6 text-slate-500" />
+                  <Send className="w-5 h-5 text-slate-500" />
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+                <div className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
                   <div>
-                    <div className="text-xs text-slate-400">Aktif Soru Sayısı</div>
-                    <div className="text-sm font-semibold text-emerald-400 mt-0.5">
-                      {currentCount} Soru Hazır
+                    <div className="text-[11px] text-slate-400">Son Senkronizasyon</div>
+                    <div className="text-xs sm:text-sm font-semibold text-slate-200 mt-0.5 truncate max-w-[120px]">
+                      {lastSyncTime || lastAppendTime ? `${lastSyncTime || lastAppendTime}` : 'Henüz yapılmadı'}
                     </div>
                   </div>
-                  <Database className="w-6 h-6 text-slate-500" />
+                  <RefreshCw className="w-5 h-5 text-slate-500" />
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/60 flex items-center justify-between">
+                  <div>
+                    <div className="text-[11px] text-slate-400">Soru Havuzu</div>
+                    <div className="text-xs sm:text-sm font-semibold text-emerald-400 mt-0.5">
+                      {currentCount} Soru
+                      {unsyncedCount > 0 && (
+                        <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          +{unsyncedCount} yeni
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <Database className="w-5 h-5 text-slate-500" />
                 </div>
               </div>
 
-              {/* URL Input & Actions */}
+              {/* SECTION 1: READ / SYNC FROM SHEET */}
               <div className="p-5 rounded-2xl bg-slate-800/30 border border-slate-700/80 space-y-4">
-                <label className="block text-sm font-medium text-slate-200">
-                  Google E-Tablo Paylaşım Linki (URL)
-                </label>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-xs font-bold text-emerald-400">1</span>
+                    E-Tablodan Soruları Oku & Güncelle (Tablo → Uygulama)
+                  </div>
+                </div>
+                
+                <p className="text-xs text-slate-400">
+                  Google E-Tablonuzdaki soruları uygulamaya çeker ve soru bankanızı günceller.
+                </p>
+
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="url"
@@ -483,21 +690,190 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                     <span>Açılışta otomatik kontrol et</span>
                   </label>
                 </div>
+              </div>
+
+              {/* SECTION 2: APPEND / PUSH TO SHEET */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-800/40 to-slate-900/60 border border-emerald-500/30 space-y-4 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                    <span className="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-xs font-bold text-emerald-300">2</span>
+                    E-Tabloya Yeni Soruları Ekle & Senkronize Et (Uygulama → Tablo)
+                  </div>
+                  
+                  {unsyncedCount > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-medium self-start sm:self-auto">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                      {unsyncedCount} Yeni Soru Bekliyor
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-medium self-start sm:self-auto">
+                      <Check className="w-3.5 h-3.5" />
+                      Tüm Sorular E-Tablo ile Eşit
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-300">
+                  Uygulama üzerinden eklediğiniz veya yüklediğiniz yeni soruları, Google E-Tablonuzdaki mevcut satırları silmeden doğrudan <strong className="text-emerald-400">tablonun devamındaki boş satırlara</strong> aktarın.
+                </p>
+
+                {/* Sub-Card A: Direct Webhook Append */}
+                <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-700/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <UploadCloud className="w-4 h-4 text-emerald-400" />
+                      Yöntem A: Google Apps Script Webhook (Otomatik Doğrudan Aktarım)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowScriptHelper(!showScriptHelper)}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      {showScriptHelper ? 'Kurulum Kodunu Gizle' : '1 Dk. Kurulum Kodunu Göster'}
+                      {showScriptHelper ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="url"
+                      value={webhookUrl}
+                      onChange={(e) => handleSaveWebhookUrl(e.target.value)}
+                      placeholder="https://script.google.com/macros/s/.../exec (Dağıtılan Web Uygulaması Linki)"
+                      className="flex-1 px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+                    />
+                    <button
+                      onClick={handleAppendNewQuestions}
+                      disabled={isAppending || unsyncedCount === 0 || !webhookUrl.trim()}
+                      className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-98 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-emerald-950/30 transition shrink-0"
+                      title={!webhookUrl.trim() ? 'Lütfen önce Webhook URL girin' : unsyncedCount === 0 ? 'Eklenecek yeni soru yok' : 'Yeni soruları E-Tablonun sonuna ekle'}
+                    >
+                      <Send className={`w-3.5 h-3.5 ${isAppending ? 'animate-bounce' : ''}`} />
+                      {isAppending ? 'Aktarılıyor...' : `Yeni Soruları E-Tabloya Gönder (${unsyncedCount})`}
+                    </button>
+                  </div>
+
+                  {/* Collapsible Apps Script helper code */}
+                  {showScriptHelper && (
+                    <div className="p-3.5 rounded-xl bg-slate-950/90 border border-slate-700 text-xs text-slate-300 space-y-2.5 animate-fade-in">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                          <Code className="w-4 h-4" />
+                          Google Apps Script Kurulum Adımları:
+                        </span>
+                        <button
+                          onClick={() => handleCopy(getAppsScriptCodeSnippet(), 'appsScriptCode')}
+                          className="px-2.5 py-1 rounded bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-[11px] text-emerald-300 flex items-center gap-1 transition"
+                        >
+                          {copiedType === 'appsScriptCode' ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              Kopyalandı!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              Kodu Kopyala
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <ol className="list-decimal list-inside space-y-1 text-slate-400 pl-1 text-[11px] leading-relaxed">
+                        <li>Google E-Tablonuzda üst menüden <strong className="text-slate-200">Uzantılar (Extensions) &gt; Apps Script</strong> seçeneğine tıklayın.</li>
+                        <li>Açılan editördeki varsayılan kodu silip aşağıdaki kodu yapıştırın ve üstteki <strong className="text-slate-200">Kaydet (Disk)</strong> ikonuna basın.</li>
+                        <li>Sağ üstteki mavi <strong className="text-slate-200">Dağıt (Deploy) &gt; Yeni Dağıtım (New Deployment)</strong> butonuna basın.</li>
+                        <li>Tür olarak dişli simgesinden <strong className="text-slate-200">Web Uygulaması (Web App)</strong> seçin.</li>
+                        <li><strong className="text-slate-200">Erişimi olanlar (Who has access)</strong> kısmını mutlaka <strong className="text-emerald-400">"Herkes (Anyone)"</strong> yapın ve <strong className="text-slate-200">Dağıt</strong>'a basın.</li>
+                        <li>Size verilen Web Uygulaması URL adresini kopyalayıp yukarıdaki kutucuğa yapıştırın!</li>
+                      </ol>
+
+                      <pre className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[10px] text-slate-300 overflow-x-auto max-h-36">
+                        {getAppsScriptCodeSnippet()}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sub-Card B: One-click TSV paste fallback & Full sync */}
+                <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-700/60 space-y-3">
+                  <div className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Copy className="w-4 h-4 text-emerald-400" />
+                    Yöntem B: Hızlı Kopyala - Yapıştır (Kurulum Gerektirmez)
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Google E-Tablonuzu açın, en alttaki ilk boş satıra tıklayın ve kopyaladığınız satırları <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px]">Ctrl+V</kbd> ile yapıştırın:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                    <button
+                      onClick={handleCopyNewOnlyTSV}
+                      className="px-3.5 py-2.5 rounded-xl bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/40 text-xs font-medium text-emerald-300 flex items-center justify-center gap-2 transition"
+                    >
+                      {copiedType === 'newOnlyTsv' ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Yeni Satırlar Kopyalandı!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Yalnızca Yeni Soruları Kopyala ({unsyncedCount})</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleExportAllTSV}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600/80 text-xs font-medium text-slate-200 flex items-center justify-center gap-2 transition"
+                    >
+                      {copiedType === 'allTsv' ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Tüm Sorular Kopyalandı!</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Tüm Havuzu Kopyala ({currentCount})</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handleMarkAllAsSyncedAction}
+                      className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600/80 text-xs font-medium text-slate-300 flex items-center justify-center gap-2 transition"
+                      title="Yeni soruları tabloya yapıştırdıysanız bildirimi sıfırlar"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Eşitlendi Olarak İşaretle</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* Feedback message */}
                 {sheetMessage && (
                   <div className={`p-3.5 rounded-xl text-xs flex items-center gap-2 ${
                     sheetMessage.type === 'success' 
                       ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                      : sheetMessage.type === 'info'
+                      ? 'bg-blue-500/10 border border-blue-500/30 text-blue-300'
                       : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
                   }`}>
-                    {sheetMessage.type === 'success' ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                    {sheetMessage.type === 'success' ? (
+                      <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+                    ) : sheetMessage.type === 'info' ? (
+                      <Info className="w-4 h-4 shrink-0 text-blue-400" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                    )}
                     <span>{sheetMessage.text}</span>
                   </div>
                 )}
               </div>
 
-              {/* Template & Helper Tools */}
+              {/* Template & Guidelines */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
@@ -525,44 +901,16 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                   </button>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    Mevcut Havuzu E-Tabloya Aktar
+                <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 text-xs text-slate-300 space-y-2">
+                  <div className="font-semibold text-blue-400 flex items-center gap-1.5">
+                    <Info className="w-4 h-4" />
+                    Sütun Sıralaması Referansı:
                   </div>
-                  <p className="text-xs text-slate-400">
-                    Şu an uygulamadaki tüm {currentCount} soruyu kopyalayıp Google E-Tablo'nuza tek tıkla yapıştırın.
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    E-Tablonuzdaki sütunlar sırasıyla: <br />
+                    <code className="text-blue-300">Ana Kategori</code> | <code className="text-blue-300">Alt Kategori</code> | <code className="text-blue-300">Soru</code> | <code className="text-blue-300">A</code> | <code className="text-blue-300">B</code> | <code className="text-blue-300">C</code> | <code className="text-blue-300">D</code> | <code className="text-blue-300">E</code> | <code className="text-blue-300">Doğru Cevap</code> | <code className="text-blue-300">Açıklama</code> olmalıdır.
                   </p>
-                  <button
-                    onClick={handleExportAllTSV}
-                    className="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600/70 text-xs font-medium text-slate-200 flex items-center justify-center gap-2 transition"
-                  >
-                    {copiedType === 'allTsv' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400">Tüm Sorular Kopyalandı!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-slate-400" />
-                        Tüm Soruları E-Tablo İçin Kopyala (TSV)
-                      </>
-                    )}
-                  </button>
                 </div>
-              </div>
-
-              {/* 3 Step Guide */}
-              <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 text-xs text-slate-300 space-y-2">
-                <div className="font-semibold text-blue-400 flex items-center gap-1.5">
-                  <Info className="w-4 h-4" />
-                  Google E-Tablo Bağlantı Adımları:
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-slate-400 pl-1">
-                  <li>Google E-Tablolar'da yeni bir tablo açın veya var olan tablonuzu kullanın.</li>
-                  <li>İlk satır sütun başlıkları: <code className="text-blue-300">Ana Kategori</code>, <code className="text-blue-300">Alt Kategori</code>, <code className="text-blue-300">Soru</code>, <code className="text-blue-300">A</code>, <code className="text-blue-300">B</code>, <code className="text-blue-300">C</code>, <code className="text-blue-300">D</code>, <code className="text-blue-300">E</code>, <code className="text-blue-300">Doğru Cevap</code>, <code className="text-blue-300">Açıklama</code> olmalıdır.</li>
-                  <li>Tablonun sağ üstündeki <strong>Paylaş</strong> butonuna basıp <em>"Bağlantıya sahip olan herkes görüntüleyebilir"</em> yapın ve linki yukarıya yapıştırın.</li>
-                </ol>
               </div>
             </div>
           )}
@@ -706,6 +1054,43 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                 />
               </div>
 
+              {/* Google E-Tabloya Otomatik Ekleme Seçeneği */}
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <label className="flex items-center gap-2.5 cursor-pointer text-slate-200 hover:text-white transition">
+                  <input
+                    type="checkbox"
+                    checked={autoAppendOnAdd}
+                    onChange={(e) => setAutoAppendOnAdd(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700"
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-slate-100 flex items-center gap-1.5">
+                      <Send className="w-3.5 h-3.5 text-emerald-400" />
+                      Doğrudan Google E-Tablo'nun sonuna ekle
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Soru yerel havuza eklenirken aynı anda E-Tablonuzun devamına yeni satır olarak yazılır.
+                    </span>
+                  </div>
+                </label>
+
+                {webhookUrl.trim() ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 shrink-0">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    Webhook Bağlı
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('sheet')}
+                    className="text-[11px] text-amber-400 hover:text-amber-300 underline shrink-0 flex items-center gap-1"
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    Webhook Tanımla
+                  </button>
+                )}
+              </div>
+
               {manualMessage && (
                 <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
                   manualMessage.type === 'success' 
@@ -765,6 +1150,32 @@ export default function QuestionManagementModal({ isOpen, onClose, onQuestionsUp
                   placeholder={`[\n  {\n    "category": "Rinoloji",\n    "topic": "Burun Kanaması",\n    "soru": "Soru metni...",\n    "secenekler": { "A": "...", "B": "...", "C": "...", "D": "...", "E": "..." },\n    "dogruCevap": "A",\n    "aciklama": "Açıklama metni..."\n  }\n]`}
                   className="w-full p-3 font-mono text-xs rounded-xl bg-slate-950 border border-slate-700 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                 />
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-xs text-slate-300">
+                  <div className="flex items-center gap-4">
+                    <span className="text-slate-400 font-medium">Yükleme Şekli:</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="jsonSyncMode"
+                        checked={jsonSyncMode === 'merge'}
+                        onChange={() => setJsonSyncMode('merge')}
+                        className="text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700"
+                      />
+                      <span>Mevcut Havuzla Birleştir & Güncelle</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="jsonSyncMode"
+                        checked={jsonSyncMode === 'replace'}
+                        onChange={() => setJsonSyncMode('replace')}
+                        className="text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700"
+                      />
+                      <span>Tüm Havuzu Bu Sorularla Değiştir (Sıfırla)</span>
+                    </label>
+                  </div>
+                </div>
 
                 {jsonMessage && (
                   <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${

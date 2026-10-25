@@ -25,7 +25,9 @@ export interface Topic {
 
 export interface SheetSyncConfig {
   sheetUrl: string;
+  webhookUrl?: string;
   lastSyncTime?: string;
+  lastAppendTime?: string;
   autoSync: boolean;
   importedCount?: number;
 }

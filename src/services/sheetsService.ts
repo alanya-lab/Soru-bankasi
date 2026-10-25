@@ -1,6 +1,6 @@
 import { Question, SheetSyncConfig } from '../types';
 import { TOPICS } from '../constants';
-import { resolveCategoryForTopic } from './db';
+import { resolveCategoryForTopic, markQuestionsAsSynced } from './db';
 
 const SHEET_CONFIG_KEY = 'kbb_sheet_sync_config';
 
@@ -13,8 +13,10 @@ export function getSheetConfig(): SheetSyncConfig {
   }
   return {
     sheetUrl: '',
+    webhookUrl: '',
     autoSync: false,
     lastSyncTime: undefined,
+    lastAppendTime: undefined,
     importedCount: 0,
   };
 }
@@ -105,29 +107,113 @@ export function parseCSVRows(text: string): string[][] {
 /**
  * Parses CSV text into Question objects with smart column header matching
  */
+/**
+ * Cleans and normalizes header strings by removing Turkish diacritics, symbols, and whitespace
+ */
+function normalizeHeaderName(h: string): string {
+  return (h || '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[çÇ]/g, 'c')
+    .replace(/[ğĞ]/g, 'g')
+    .replace(/[ıIİi]/g, 'i')
+    .replace(/[öÖ]/g, 'o')
+    .replace(/[şŞ]/g, 's')
+    .replace(/[üÜ]/g, 'u')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Checks if a normalized header exactly matches an option letter (A, B, C, D, E)
+ * Prevents catastrophic false-positives where words like "kategori" or "aciklama" match 'a' or 'e'
+ */
+function isOptionHeaderMatch(normalizedHeader: string, letter: 'a' | 'b' | 'c' | 'd' | 'e'): boolean {
+  return (
+    normalizedHeader === letter ||
+    normalizedHeader === `sik${letter}` ||
+    normalizedHeader === `secenek${letter}` ||
+    normalizedHeader === `option${letter}` ||
+    normalizedHeader === `opt${letter}` ||
+    normalizedHeader === `choice${letter}` ||
+    normalizedHeader === `${letter}sikki` ||
+    normalizedHeader === `${letter}secenegi`
+  );
+}
+
+/**
+ * Parses CSV text into Question objects with smart column header matching
+ */
 export function parseCSVToQuestions(csvText: string): { questions: Question[]; skipped: number; totalRows: number } {
   const rows = parseCSVRows(csvText);
   if (rows.length < 2) {
     return { questions: [], skipped: 0, totalRows: rows.length };
   }
 
-  const headerRow = rows[0].map(h => h.toLowerCase().trim().replace(/['"_\s-]/g, ''));
-  
-  // Find column indices
-  const findCol = (...keywords: string[]): number => {
-    return headerRow.findIndex(h => keywords.some(k => h.includes(k.toLowerCase().replace(/['"_\s-]/g, ''))));
-  };
+  const rawHeaders = rows[0];
+  const headerRow = rawHeaders.map(normalizeHeaderName);
+  const columnCount = rawHeaders.length;
 
-  const colCategory = findCol('anakategori', 'kategori', 'category', 'bolum');
-  const colTopic = findCol('altkategori', 'konu', 'topic', 'baslik', 'subtopic');
-  const colSoru = findCol('soru', 'vaka', 'question', 'sorumetni');
-  const colA = findCol('seceneka', 'sıka', 'sika', 'a', 'optiona');
-  const colB = findCol('secenekb', 'sıkb', 'sikb', 'b', 'optionb');
-  const colC = findCol('secenekc', 'sıkc', 'sikc', 'c', 'optionc');
-  const colD = findCol('secenekd', 'sıkd', 'sikd', 'd', 'optiond');
-  const colE = findCol('seceneke', 'sıke', 'sike', 'e', 'optione');
-  const colAns = findCol('dogrucevap', 'dogrusik', 'cevap', 'answer', 'key', 'correct');
-  const colExp = findCol('aciklama', 'cozum', 'explanation', 'kaynak', 'referans', 'not');
+  // 1. Match Options A, B, C, D, E with STRICT exact matching (NEVER substring include!)
+  let colA = headerRow.findIndex(h => isOptionHeaderMatch(h, 'a'));
+  let colB = headerRow.findIndex(h => isOptionHeaderMatch(h, 'b'));
+  let colC = headerRow.findIndex(h => isOptionHeaderMatch(h, 'c'));
+  let colD = headerRow.findIndex(h => isOptionHeaderMatch(h, 'd'));
+  let colE = headerRow.findIndex(h => isOptionHeaderMatch(h, 'e'));
+
+  // 2. Match Category (Must NOT be subcategory / altkategori)
+  let colCategory = headerRow.findIndex(h => 
+    !h.includes('alt') && !h.includes('sub') && 
+    (h === 'anakategori' || h === 'kategori' || h === 'category' || h === 'bolum' || h === 'maincategory' || h === 'brans' || h.includes('kategori'))
+  );
+
+  // 3. Match Topic / Subcategory
+  let colTopic = headerRow.findIndex(h => 
+    h === 'altkategori' || h === 'konu' || h === 'topic' || h === 'altbaslik' || h === 'baslik' || 
+    h === 'subtopic' || h.includes('altkategori') || h.includes('subtopic') || h.includes('konu')
+  );
+
+  // 4. Match Question stem
+  let colSoru = headerRow.findIndex(h => 
+    h === 'soru' || h === 'sorumetni' || h === 'question' || h === 'stem' || h === 'vaka' || 
+    h === 'klinikvaka' || h.includes('soru') || h.includes('question')
+  );
+
+  // 5. Match Correct Answer
+  let colAns = headerRow.findIndex(h => 
+    h === 'dogrucevap' || h === 'dogrusik' || h === 'cevap' || h === 'yanit' || h === 'answer' || 
+    h === 'correct' || h === 'key' || h.includes('dogrucevap') || h.includes('cevap') || h.includes('yanit') || h.includes('answer')
+  );
+
+  // 6. Match Explanation
+  let colExp = headerRow.findIndex(h => 
+    h === 'aciklama' || h === 'cozum' || h === 'explanation' || h === 'kaynak' || h === 'referans' || 
+    h === 'not' || h === 'rationale' || h.includes('aciklama') || h.includes('cozum') || h.includes('explanation')
+  );
+
+  // Positional fallbacks if headers couldn't be detected
+  if (colA === -1 || colB === -1 || colC === -1 || colD === -1 || colE === -1) {
+    if (columnCount >= 10) {
+      // Standard 10 columns: Ana Kategori, Alt Kategori, Soru, A, B, C, D, E, Doğru Cevap, Açıklama
+      if (colCategory === -1) colCategory = 0;
+      if (colTopic === -1) colTopic = 1;
+      if (colSoru === -1) colSoru = 2;
+      colA = 3; colB = 4; colC = 5; colD = 6; colE = 7;
+      if (colAns === -1) colAns = 8;
+      if (colExp === -1) colExp = 9;
+    } else if (columnCount === 9) {
+      // 9 columns: Konu/Topic, Soru, A, B, C, D, E, Doğru Cevap, Açıklama
+      if (colTopic === -1) colTopic = 0;
+      if (colSoru === -1) colSoru = 1;
+      colA = 2; colB = 3; colC = 4; colD = 5; colE = 6;
+      if (colAns === -1) colAns = 7;
+      if (colExp === -1) colExp = 8;
+    } else if (columnCount === 8) {
+      // 8 columns: Soru, A, B, C, D, E, Doğru Cevap, Açıklama
+      if (colSoru === -1) colSoru = 0;
+      colA = 1; colB = 2; colC = 3; colD = 4; colE = 5;
+      if (colAns === -1) colAns = 6;
+      if (colExp === -1) colExp = 7;
+    }
+  }
 
   const questions: Question[] = [];
   let skipped = 0;
@@ -137,18 +223,18 @@ export function parseCSVToQuestions(csvText: string): { questions: Question[]; s
     if (row.length === 0 || row.every(c => !c)) continue;
 
     // Soru metni
-    let soruMetni = colSoru !== -1 ? row[colSoru] : (row[2] || row[0] || '');
+    let soruMetni = (colSoru !== -1 && row[colSoru]) ? row[colSoru] : (row[2] || row[0] || '');
     if (!soruMetni || soruMetni.length < 5) {
       skipped++;
       continue;
     }
 
-    // Seçenekler
-    const optA = (colA !== -1 ? row[colA] : row[3]) || '';
-    const optB = (colB !== -1 ? row[colB] : row[4]) || '';
-    const optC = (colC !== -1 ? row[colC] : row[5]) || '';
-    const optD = (colD !== -1 ? row[colD] : row[6]) || '';
-    const optE = (colE !== -1 ? row[colE] : row[7]) || '';
+    // Seçenekler (A - E)
+    const optA = (colA !== -1 ? row[colA] : '') || '';
+    const optB = (colB !== -1 ? row[colB] : '') || '';
+    const optC = (colC !== -1 ? row[colC] : '') || '';
+    const optD = (colD !== -1 ? row[colD] : '') || '';
+    const optE = (colE !== -1 ? row[colE] : '') || '';
 
     if (!optA || !optB || !optC || !optD || !optE) {
       skipped++;
@@ -156,7 +242,7 @@ export function parseCSVToQuestions(csvText: string): { questions: Question[]; s
     }
 
     // Doğru cevap ayıklama
-    const rawAns = (colAns !== -1 ? row[colAns] : row[8]) || 'A';
+    const rawAns = (colAns !== -1 && row[colAns]) ? row[colAns] : 'A';
     let cleanAns: 'A' | 'B' | 'C' | 'D' | 'E' = 'A';
     const match = rawAns.toUpperCase().match(/[A-E]/);
     if (match) {
@@ -164,27 +250,27 @@ export function parseCSVToQuestions(csvText: string): { questions: Question[]; s
     }
 
     // Açıklama
-    const aciklama = (colExp !== -1 ? row[colExp] : row[9]) || 'Bu soru için henüz açıklama girilmedi.';
+    const aciklama = (colExp !== -1 && row[colExp]) ? row[colExp] : 'Bu soru için henüz açıklama girilmedi.';
 
     // Kategori ve Konu
-    let category = colCategory !== -1 ? row[colCategory] : (row[0] || '');
-    let topic = colTopic !== -1 ? row[colTopic] : (row[1] || '');
+    let category = (colCategory !== -1 && row[colCategory]) ? row[colCategory] : '';
+    let topic = (colTopic !== -1 && row[colTopic]) ? row[colTopic] : '';
 
-    // Kategori ve Konu normalizasyonu
+    // If only one was provided, determine appropriate topic & category
     topic = (topic || category || 'Genel').trim();
     category = resolveCategoryForTopic(topic, category);
 
     questions.push({
-      soru: soruMetni,
+      soru: soruMetni.trim(),
       secenekler: {
-        A: optA,
-        B: optB,
-        C: optC,
-        D: optD,
-        E: optE,
+        A: optA.trim(),
+        B: optB.trim(),
+        C: optC.trim(),
+        D: optD.trim(),
+        E: optE.trim(),
       },
       dogruCevap: cleanAns,
-      aciklama,
+      aciklama: aciklama.trim(),
       topic,
       category,
     });
@@ -232,6 +318,9 @@ export async function fetchSheetContent(sheetUrl: string): Promise<{ questions: 
     throw new Error(`E-Tabloda geçerli soru satırı bulunamadı (${totalRows} satır okundu, ${skipped} satır atlandı). Lütfen sütun başlıklarını kontrol edin.`);
   }
 
+  // Register all imported questions as synced with sheet
+  markQuestionsAsSynced(questions);
+
   // Update sync config
   const currentConfig = getSheetConfig();
   saveSheetConfig({
@@ -245,36 +334,12 @@ export async function fetchSheetContent(sheetUrl: string): Promise<{ questions: 
 }
 
 /**
- * Exports questions as Tab-Separated Values (TSV) for single-action paste into Google Sheets
+ * Converts a Question object to a 10-element array matching Google Sheet columns
  */
-export function exportQuestionsToTSV(questions: Question[]): string {
-  const headers = ['Ana Kategori', 'Alt Kategori', 'Soru', 'A', 'B', 'C', 'D', 'E', 'Doğru Cevap', 'Açıklama'];
-  const rows = questions.map(q => {
-    const clean = (str?: string) => (str || '').replace(/\t/g, ' ').replace(/[\r\n]+/g, ' ').trim();
-    return [
-      clean(q.category || 'Genel KBB'),
-      clean(q.topic || 'Genel'),
-      clean(q.soru),
-      clean(q.secenekler.A),
-      clean(q.secenekler.B),
-      clean(q.secenekler.C),
-      clean(q.secenekler.D),
-      clean(q.secenekler.E),
-      q.dogruCevap,
-      clean(q.aciklama),
-    ].join('\t');
-  });
-
-  return [headers.join('\t'), ...rows].join('\n');
-}
-
-/**
- * Single question to single TSV line ready to append to a sheet
- */
-export function singleQuestionToTSVLine(q: Question): string {
+export function questionToRowArray(q: Question): string[] {
   const clean = (str?: string) => (str || '').replace(/\t/g, ' ').replace(/[\r\n]+/g, ' ').trim();
   return [
-    clean(q.category || 'Genel KBB'),
+    clean(q.category || 'Genel KBB ve Aciller'),
     clean(q.topic || 'Genel'),
     clean(q.soru),
     clean(q.secenekler.A),
@@ -283,8 +348,129 @@ export function singleQuestionToTSVLine(q: Question): string {
     clean(q.secenekler.D),
     clean(q.secenekler.E),
     q.dogruCevap,
-    clean(q.aciklama),
-  ].join('\t');
+    clean(q.aciklama || 'Açıklama girilmedi.'),
+  ];
+}
+
+/**
+ * Exports questions as Tab-Separated Values (TSV) for single-action paste into Google Sheets.
+ * If includeHeaders is false, produces raw rows suitable for pasting right below existing rows!
+ */
+export function exportQuestionsToTSV(questions: Question[], includeHeaders: boolean = true): string {
+  const headers = ['Ana Kategori', 'Alt Kategori', 'Soru', 'A', 'B', 'C', 'D', 'E', 'Doğru Cevap', 'Açıklama'];
+  const rows = questions.map(q => questionToRowArray(q).join('\t'));
+
+  if (includeHeaders) {
+    return [headers.join('\t'), ...rows].join('\n');
+  }
+  return rows.join('\n');
+}
+
+/**
+ * Single question to single TSV line ready to append to a sheet
+ */
+export function singleQuestionToTSVLine(q: Question): string {
+  return questionToRowArray(q).join('\t');
+}
+
+/**
+ * Appends an array of questions directly to the user's Google Sheet via their Apps Script Webhook
+ */
+export async function appendQuestionsToGoogleSheet(
+  webhookUrl: string, 
+  questions: Question[]
+): Promise<{ ok: boolean; message: string; count: number }> {
+  if (!webhookUrl || !webhookUrl.trim()) {
+    throw new Error('Google Apps Script Webhook URL adresi tanımlı değil.');
+  }
+
+  if (questions.length === 0) {
+    return { ok: true, message: 'Eklenecek yeni soru bulunamadı.', count: 0 };
+  }
+
+  const rows = questions.map(questionToRowArray);
+
+  const response = await fetch('/api/sheets/append', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      webhookUrl: webhookUrl.trim(),
+      rowData: {
+        action: 'append',
+        rows,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error || `E-Tabloya satır eklenirken hata oluştu (${response.status})`);
+  }
+
+  const result = await response.json();
+  if (result.ok === false) {
+    throw new Error(result.error || 'Google E-Tablo scriptinden hata yanıtı alındı.');
+  }
+
+  // Mark appended questions as synced locally
+  markQuestionsAsSynced(questions);
+
+  // Update sync config
+  const currentConfig = getSheetConfig();
+  const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  saveSheetConfig({
+    ...currentConfig,
+    lastAppendTime: now,
+  });
+
+  return {
+    ok: true,
+    message: `${questions.length} soru Google E-Tablonuzun son satırlarının devamına başarıyla eklendi!`,
+    count: questions.length,
+  };
+}
+
+/**
+ * Returns copy-paste ready Google Apps Script code for 1-click Webhook deployment
+ */
+export function getAppsScriptCodeSnippet(): string {
+  return `// Google E-Tablonuzda: Uzantılar (Extensions) -> Apps Script menüsünü açıp
+// mevcut içeriği silip bu kodu yapıştırın ve Dağıt (Deploy) -> Yeni Dağıtım -> Web Uygulaması yapın:
+
+function doPost(e) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var data = JSON.parse(e.postData.contents);
+    var rows = data.rows || (Array.isArray(data) ? data : [data]);
+    
+    // Eğer tablo tamamen boşsa, önce sütun başlıklarını yaz
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+        "Ana Kategori", "Alt Kategori", "Soru", 
+        "A", "B", "C", "D", "E", 
+        "Doğru Cevap", "Açıklama"
+      ]);
+    }
+    
+    if (rows && rows.length > 0) {
+      var lastRow = sheet.getLastRow();
+      var numCols = rows[0].length;
+      var range = sheet.getRange(lastRow + 1, 1, rows.length, numCols);
+      range.setValues(rows);
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: true,
+      added: rows ? rows.length : 0,
+      newLastRow: sheet.getLastRow()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
 }
 
 /**
